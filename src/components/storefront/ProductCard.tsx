@@ -3,15 +3,18 @@ import { calculateDiscount, type Product } from "@/lib/products";
 
 export function ProductCard({ product }: { product: Product }) {
   const discount = calculateDiscount(product);
+  const stockCount = Object.values(product.stock).reduce((total, stock) => total + stock, 0);
 
   return (
     <Link href={`/product/${product.slug}`} className="group block overflow-hidden rounded-[28px] border border-stone-200 bg-[#f9f1e8] transition hover:-translate-y-1 hover:shadow-xl">
       <div className="relative h-80 overflow-hidden bg-[#f1e6d8]">
-        <img
-          src={product.images[0]}
-          alt={product.name}
-          className="h-full w-full object-cover transition duration-500 group-hover:scale-105"
-        />
+        {product.images[0] ? (
+          <img
+            src={product.images[0]}
+            alt={product.name}
+            className="h-full w-full object-cover transition duration-500 group-hover:scale-105"
+          />
+        ) : <div aria-label="No product photo available" className="h-full w-full bg-[#e4d4c2]" />}
         <div className="absolute left-4 top-4 flex gap-2 text-[10px] font-bold uppercase tracking-[0.18em]">
           {product.newArrival && <span className="rounded-full bg-white px-2 py-1 text-[#63452f]">New</span>}
           {discount > 0 && <span className="rounded-full bg-[#29221d] px-2 py-1 text-white">{discount}% OFF</span>}
@@ -29,7 +32,7 @@ export function ProductCard({ product }: { product: Product }) {
         </div>
         <div className="flex items-center justify-between text-sm text-[#63452f]">
           <span>{product.colors.length} colours</span>
-          <span>{product.status === "Published" ? "In stock" : "Unpublished"}</span>
+          <span>{stockCount > 0 ? "In stock" : "Out of stock"}</span>
         </div>
       </div>
     </Link>
