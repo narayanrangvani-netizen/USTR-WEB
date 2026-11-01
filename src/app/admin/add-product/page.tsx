@@ -8,6 +8,7 @@ import { fetchProducts, type Product } from "@/lib/products";
 type ProductForm = {
   name: string;
   category: string;
+  customCategory: string;
   gender: Product["gender"];
   description: string;
   price: string;
@@ -20,6 +21,8 @@ type ProductForm = {
   fit: string;
   care: string;
   status: Product["status"];
+  showOnRack: boolean;
+  rackOrder: string;
   featured: boolean;
   newArrival: boolean;
   bestseller: boolean;
@@ -27,7 +30,8 @@ type ProductForm = {
 
 const emptyForm: ProductForm = {
   name: "",
-  category: "",
+  category: "T-shirts",
+  customCategory: "",
   gender: "Men",
   description: "",
   price: "",
@@ -40,6 +44,8 @@ const emptyForm: ProductForm = {
   fit: "",
   care: "",
   status: "Draft",
+  showOnRack: true,
+  rackOrder: "0",
   featured: false,
   newArrival: false,
   bestseller: false,
@@ -51,7 +57,9 @@ export default function AddProductPage() {
   const editId = params.get("edit");
   const [form, setForm] = useState<ProductForm>(emptyForm);
   const [files, setFiles] = useState<File[]>([]);
-  const [images, setImages] = useState<{ id: string; url: string }[]>([]);
+  const [images, setImages] = useState<{ id: string; url: string; role: string; color: string | null }[]>([]);
+  const [imageRole, setImageRole] = useState<"side" | "front" | "back" | "colorway">("front");
+  const [imageColor, setImageColor] = useState("");
   const [loadingProduct, setLoadingProduct] = useState(Boolean(editId));
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
@@ -64,7 +72,8 @@ export default function AddProductPage() {
         if (!product) throw new Error("This product could not be found.");
         setForm({
           name: product.name,
-          category: product.category,
+          category: ["T-shirts", "Shirts"].includes(product.category) ? product.category : "Other",
+          customCategory: ["T-shirts", "Shirts"].includes(product.category) ? "" : product.category,
           gender: product.gender,
           description: product.description,
           price: String(product.price),
@@ -77,13 +86,16 @@ export default function AddProductPage() {
           fit: product.fit,
           care: product.care,
           status: product.status,
+          showOnRack: product.showOnRack,
+          rackOrder: String(product.rackOrder),
           featured: product.featured,
           newArrival: product.newArrival,
           bestseller: product.bestseller,
         });
         setImages(product.images.flatMap((url, index) => {
           const id = product.imageIds?.[index];
-          return id ? [{ id, url }] : [];
+          const detail = product.imageDetails?.find((image) => image.id === id);
+          return id ? [{ id, url, role: detail?.role ?? "front", color: detail?.color ?? null }] : [];
         }));
       })
       .catch((reason: unknown) => setError(reason instanceof Error ? reason.message : "Could not load product."))
@@ -103,6 +115,8 @@ export default function AddProductPage() {
       const payload = {
         ...(editId ? { id: editId } : {}),
         ...form,
+        category: form.category === "Other" ? form.customCategory.trim() : form.category,
+        rackOrder: Number(form.rackOrder),
         price: Number(form.price),
         mrp: Number(form.mrp),
         stock: form.stock === "" && editId ? "" : Number(form.stock),
@@ -120,6 +134,8 @@ export default function AddProductPage() {
       for (const file of files) {
         const data = new FormData();
         data.set("file", file);
+        data.set("role", imageRole);
+        if (imageRole === "colorway") data.set("color", imageColor);
         const upload = await fetch(`/api/admin/products/${body.id}/images`, { method: "POST", body: data });
         const uploadBody = await upload.json();
         if (!upload.ok) throw new Error(uploadBody.error ?? "Product saved, but an image could not be uploaded.");
@@ -159,7 +175,8 @@ export default function AddProductPage() {
           <label className="block"><span className="mb-2 block text-sm font-medium text-[#63452f]">Product name</span><input value={form.name} onChange={(event) => setField("name", event.target.value)} className="w-full rounded-2xl border border-stone-300 bg-white px-4 py-3" minLength={2} required /></label>
           <label className="block"><span className="mb-2 block text-sm font-medium text-[#63452f]">SKU</span><input value={form.sku} onChange={(event) => setField("sku", event.target.value)} className="w-full rounded-2xl border border-stone-300 bg-white px-4 py-3" minLength={3} required /></label>
           <label className="block"><span className="mb-2 block text-sm font-medium text-[#63452f]">Gender collection</span><select value={form.gender} onChange={(event) => setField("gender", event.target.value as Product["gender"])} className="w-full rounded-2xl border border-stone-300 bg-white px-4 py-3"><option value="Men">Men</option><option value="Women">Women</option><option value="Unisex">Unisex</option></select></label>
-          <label className="block"><span className="mb-2 block text-sm font-medium text-[#63452f]">Category</span><input value={form.category} onChange={(event) => setField("category", event.target.value)} className="w-full rounded-2xl border border-stone-300 bg-white px-4 py-3" required /></label>
+          <label className="block"><span className="mb-2 block text-sm font-medium text-[#63452f]">Category</span><select value={form.category} onChange={(event) => setField("category", event.target.value)} className="w-full rounded-2xl border border-stone-300 bg-white px-4 py-3" required><option value="T-shirts">T-shirts</option><option value="Shirts">Shirts</option><option value="Other">Other category</option></select></label>
+          {form.category === "Other" && <label className="block"><span className="mb-2 block text-sm font-medium text-[#63452f]">Custom category</span><input value={form.customCategory} onChange={(event) => setField("customCategory", event.target.value)} className="w-full rounded-2xl border border-stone-300 bg-white px-4 py-3" minLength={2} placeholder="e.g. Jackets" required /></label>}
           <label className="block"><span className="mb-2 block text-sm font-medium text-[#63452f]">Status</span><select value={form.status} onChange={(event) => setField("status", event.target.value as Product["status"])} className="w-full rounded-2xl border border-stone-300 bg-white px-4 py-3"><option value="Draft">Draft</option><option value="Published">Published</option><option value="Archived">Archived</option></select></label>
           <label className="block"><span className="mb-2 block text-sm font-medium text-[#63452f]">Selling price (₹)</span><input type="number" min="1" step="0.01" value={form.price} onChange={(event) => setField("price", event.target.value)} className="w-full rounded-2xl border border-stone-300 bg-white px-4 py-3" required /></label>
           <label className="block"><span className="mb-2 block text-sm font-medium text-[#63452f]">Original MRP (₹)</span><input type="number" min="1" step="0.01" value={form.mrp} onChange={(event) => setField("mrp", event.target.value)} className="w-full rounded-2xl border border-stone-300 bg-white px-4 py-3" required /></label>
@@ -175,10 +192,20 @@ export default function AddProductPage() {
         <section className="space-y-4 rounded-2xl border border-stone-200 bg-white p-5">
           <div><h2 className="font-semibold text-[#29221d]">Product photos</h2><p className="mt-1 text-sm text-[#63452f]">JPG, PNG, or WebP; up to 5 MB per photo. Add at least one photo before publishing.</p></div>
           {images.length > 0 && <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">{images.map((image) => (
-            <div key={image.id} className="relative"><Image src={image.url} alt="Product" width={288} height={144} unoptimized className="h-36 w-full rounded-xl object-cover" /><button type="button" onClick={() => void removeImage(image.id)} className="absolute right-2 top-2 rounded-full bg-white px-3 py-1 text-xs font-semibold text-red-700 shadow">Remove</button></div>
+            <div key={image.id} className="relative"><Image src={image.url} alt={`${image.role} product view${image.color ? `, ${image.color}` : ""}`} width={288} height={144} unoptimized className="h-36 w-full rounded-xl object-contain bg-[#f2e9dd]" /><div className="absolute bottom-2 left-2 rounded-full bg-white/90 px-2 py-1 text-[10px] uppercase text-[#29221d]">{image.role}{image.color ? ` · ${image.color}` : ""}</div><button type="button" onClick={() => void removeImage(image.id)} className="absolute right-2 top-2 rounded-full bg-white px-3 py-1 text-xs font-semibold text-red-700 shadow">Remove</button></div>
           ))}</div>}
+          <div className="grid gap-4 sm:grid-cols-2">
+            <label className="block"><span className="mb-2 block text-sm font-medium text-[#63452f]">Image view</span><select value={imageRole} onChange={(event) => setImageRole(event.target.value as typeof imageRole)} className="w-full rounded-2xl border border-stone-300 bg-white px-4 py-3"><option value="front">Front</option><option value="side">Side</option><option value="back">Back</option><option value="colorway">Colourway</option></select></label>
+            {imageRole === "colorway" && <label className="block"><span className="mb-2 block text-sm font-medium text-[#63452f]">Colour for these images</span><select value={imageColor} onChange={(event) => setImageColor(event.target.value)} className="w-full rounded-2xl border border-stone-300 bg-white px-4 py-3" required><option value="">Select a product colour</option>{form.colors.split(",").map((color) => color.trim()).filter(Boolean).map((color) => <option key={color} value={color}>{color}</option>)}</select></label>}
+          </div>
           <label className="block"><span className="sr-only">Choose product photos</span><input type="file" accept="image/jpeg,image/png,image/webp" multiple onChange={(event) => setFiles(Array.from(event.target.files ?? []))} className="block w-full text-sm text-[#63452f] file:mr-4 file:rounded-full file:border-0 file:bg-[#29221d] file:px-5 file:py-2 file:text-sm file:font-semibold file:text-white" /></label>
-          {files.length > 0 && <p className="text-sm text-[#63452f]">{files.length} photo{files.length === 1 ? "" : "s"} selected. They upload when you save.</p>}
+          {files.length > 0 && <p className="text-sm text-[#63452f]">{files.length} {imageRole} photo{files.length === 1 ? "" : "s"} selected. They upload when you save.</p>}
+        </section>
+
+        <section className="grid gap-4 rounded-2xl border border-stone-200 bg-white p-5 sm:grid-cols-2">
+          <div className="sm:col-span-2"><h2 className="font-semibold text-[#29221d]">Showroom rack</h2><p className="mt-1 text-sm text-[#63452f]">Only published products with uploaded images appear. The first 10 rack products, in order, are shown.</p></div>
+          <label className="flex items-center gap-3 text-sm text-[#63452f]"><input checked={form.showOnRack} onChange={(event) => setField("showOnRack", event.target.checked)} type="checkbox" />Show on clothing rack</label>
+          <label className="block"><span className="mb-2 block text-sm font-medium text-[#63452f]">Rack display order</span><input type="number" min="0" max="10000" value={form.rackOrder} onChange={(event) => setField("rackOrder", event.target.value)} className="w-full rounded-2xl border border-stone-300 bg-white px-4 py-3" /></label>
         </section>
 
         <div className="flex flex-wrap gap-4">

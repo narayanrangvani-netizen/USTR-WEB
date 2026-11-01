@@ -4,8 +4,8 @@ import { CartLink } from "@/components/cart/CartLink";
 const navItems = [
   { label: "Men", href: "/men" },
   { label: "Women", href: "/women" },
-  { label: "New Arrivals", href: "/#new-arrivals" },
-  { label: "Collections", href: "/#collections" },
+  { label: "T-shirts", href: "/t-shirts" },
+  { label: "Shirts", href: "/shirts" },
 ];
 
 export function Header() {

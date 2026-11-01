@@ -15,6 +15,9 @@ export type Product = {
   stock: Record<string, number>;
   images: string[];
   imageIds?: string[];
+  imageDetails?: ProductImage[];
+  showOnRack: boolean;
+  rackOrder: number;
   featured: boolean;
   newArrival: boolean;
   bestseller: boolean;
@@ -23,6 +26,13 @@ export type Product = {
   fit: string;
   care: string;
   sku: string;
+};
+
+export type ProductImage = {
+  id: string;
+  url: string;
+  role: "side" | "front" | "back" | "colorway";
+  color: string | null;
 };
 
 export async function fetchProducts(includeUnpublished = false): Promise<Product[]> {

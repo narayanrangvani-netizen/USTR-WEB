@@ -5,8 +5,17 @@ import { Footer } from "@/components/storefront/Footer";
 import { Header } from "@/components/storefront/Header";
 import { ProductCard } from "@/components/storefront/ProductCard";
 import { fetchProducts, type Product } from "@/lib/products";
+import Link from "next/link";
 
-export function CategoryPage({ gender, title }: { gender: "Men" | "Women"; title: string }) {
+export function CategoryPage({
+  gender,
+  title,
+  productType,
+}: {
+  gender?: "Men" | "Women";
+  title: string;
+  productType?: "T-shirts" | "Shirts";
+}) {
   const [products, setProducts] = useState<Product[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -20,8 +29,9 @@ export function CategoryPage({ gender, title }: { gender: "Men" | "Women"; title
 
   const categoryProducts = products.filter(
     (product) =>
-      (product.gender === gender || product.gender === "Unisex") &&
-      product.status === "Published",
+      (!gender || product.gender === gender || product.gender === "Unisex") &&
+      product.status === "Published" &&
+      (!productType || product.category.toLowerCase().replace(/[^a-z]/g, "").includes(productType === "T-shirts" ? "tshirt" : "shirt")),
   );
 
   return (
@@ -35,6 +45,11 @@ export function CategoryPage({ gender, title }: { gender: "Men" | "Women"; title
           <h1 className="mt-3 text-3xl font-semibold uppercase tracking-tight sm:text-4xl">
             {title}
           </h1>
+          <nav aria-label="Clothing categories" className="mt-5 flex flex-wrap gap-3">
+            <Link href={gender ? gender === "Women" ? "/women" : "/men" : "/"} className="rounded-full border border-[#63452f] px-4 py-2 text-xs font-semibold uppercase tracking-[0.12em] text-[#63452f]">All</Link>
+            <Link href="/t-shirts" aria-current={productType === "T-shirts" ? "page" : undefined} className={`rounded-full border px-4 py-2 text-xs font-semibold uppercase tracking-[0.12em] ${productType === "T-shirts" ? "border-[#29221d] bg-[#29221d] text-white" : "border-[#63452f] text-[#63452f]"}`}>T-shirts</Link>
+            <Link href="/shirts" aria-current={productType === "Shirts" ? "page" : undefined} className={`rounded-full border px-4 py-2 text-xs font-semibold uppercase tracking-[0.12em] ${productType === "Shirts" ? "border-[#29221d] bg-[#29221d] text-white" : "border-[#63452f] text-[#63452f]"}`}>Shirts</Link>
+          </nav>
         </div>
         {loading ? (
           <p className="rounded-[24px] bg-[#f9f3ee] p-6 text-[#63452f]">Loading collection…</p>

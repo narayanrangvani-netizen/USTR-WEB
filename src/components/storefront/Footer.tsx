@@ -15,8 +15,8 @@ export function Footer() {
           <ul className="mt-4 space-y-3 text-sm text-[#63452f]">
             <li><Link href="/men">Men</Link></li>
             <li><Link href="/women">Women</Link></li>
-            <li><Link href="/#new-arrivals">New Arrivals</Link></li>
-            <li><Link href="/#collections">Collections</Link></li>
+            <li><Link href="/t-shirts">T-shirts</Link></li>
+            <li><Link href="/shirts">Shirts</Link></li>
           </ul>
         </div>
         <div>
@@ -31,9 +31,8 @@ export function Footer() {
         <div>
           <h3 className="text-sm font-bold uppercase tracking-[0.2em] text-[#29221d]">Contact</h3>
           <ul className="mt-4 space-y-3 text-sm text-[#63452f]">
-            <li>hello@ustrsuits.com</li>
-            <li>+91 98765 43210</li>
-            <li>12 Stone Lane, Bengaluru</li>
+            <li>Ahmedabad, India</li>
+            <li>Customer contact details are being set up.</li>
           </ul>
         </div>
       </div>

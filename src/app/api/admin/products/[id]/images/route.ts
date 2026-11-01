@@ -13,6 +13,16 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
     if (!/^[0-9a-f-]{36}$/i.test(id)) return NextResponse.json({ error: "Invalid product ID." }, { status: 400 });
     const formData = await request.formData();
     const file = formData.get("file");
+    const roleValue = formData.get("role");
+    const colorValue = formData.get("color");
+    const imageRole = roleValue === null ? "front" : String(roleValue);
+    const imageColor = colorValue ? String(colorValue).trim() : null;
+    if (!["side", "front", "back", "colorway"].includes(imageRole)) {
+      return NextResponse.json({ error: "Choose a valid product image view." }, { status: 400 });
+    }
+    if (imageRole === "colorway" && !imageColor) {
+      return NextResponse.json({ error: "Choose a product colour for a colourway image." }, { status: 400 });
+    }
     if (!(file instanceof File) || !allowedTypes.has(file.type) || file.size < 1 || file.size > MAX_IMAGE_BYTES) {
       return NextResponse.json({ error: "Choose a JPG, PNG, or WebP image smaller than 5 MB." }, { status: 400 });
     }
@@ -26,8 +36,11 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
       return NextResponse.json({ error: "The selected file contents do not match a supported image format." }, { status: 400 });
     }
 
-    const { data: product, error: productError } = await access.service.from("products").select("id").eq("id", id).maybeSingle();
+    const { data: product, error: productError } = await access.service.from("products").select("id, colors").eq("id", id).maybeSingle();
     if (productError || !product) return NextResponse.json({ error: "Product not found." }, { status: 404 });
+    if (imageRole === "colorway" && imageColor && !(product.colors as string[]).includes(imageColor)) {
+      return NextResponse.json({ error: "The selected colour must be listed on this product first." }, { status: 400 });
+    }
 
     const extension = file.type === "image/jpeg" ? "jpg" : file.type === "image/png" ? "png" : "webp";
     const storagePath = `${id}/${crypto.randomUUID()}.${extension}`;
@@ -47,8 +60,10 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
         image_url: publicUrl.publicUrl,
         is_primary: existing.length === 0,
         sort_order: existing.length,
+        image_role: imageRole,
+        image_color: imageRole === "colorway" ? imageColor : null,
       })
-      .select("id, image_url, is_primary")
+      .select("id, image_url, is_primary, image_role, image_color")
       .single();
     if (insertError) return NextResponse.json({ error: `Image uploaded, but its product record could not be saved: ${insertError.message}` }, { status: 400 });
     return NextResponse.json({ image }, { status: 201 });

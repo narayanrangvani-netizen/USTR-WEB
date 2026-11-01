@@ -32,6 +32,8 @@ export async function POST(request: Request) {
     const colors = Array.isArray(body.colors) ? body.colors.map((value: unknown) => typeof value === "string" ? value.trim() : "").filter(Boolean) : [];
     const sizes = Array.isArray(body.sizes) ? body.sizes.map((value: unknown) => typeof value === "string" ? value.trim() : "").filter(Boolean) : [];
     const status = body.status;
+    const showOnRack = body.showOnRack === undefined ? true : body.showOnRack;
+    const rackOrder = body.rackOrder === undefined ? 0 : Number(body.rackOrder);
     const hasProductId = body.id !== undefined;
     const productId = typeof body.id === "string" && /^[0-9a-f-]{36}$/i.test(body.id) ? body.id : undefined;
     const stock = body.stock === "" && productId ? undefined : Number(body.stock);
@@ -47,6 +49,10 @@ export async function POST(request: Request) {
       mrp < price ||
       (hasProductId && !productId) ||
       !["Draft", "Published", "Archived"].includes(status) ||
+      typeof showOnRack !== "boolean" ||
+      !Number.isInteger(rackOrder) ||
+      rackOrder < 0 ||
+      rackOrder > 10000 ||
       (stock !== undefined && (!Number.isInteger(stock) || stock < 0 || stock > 10000)) ||
       (stock === undefined && !productId) ||
       colors.length < 1 ||
@@ -78,6 +84,8 @@ export async function POST(request: Request) {
       original_price: mrp,
       sku,
       status,
+      show_on_rack: showOnRack,
+      rack_order: rackOrder,
       is_featured: body.featured === true,
       is_new_arrival: body.newArrival === true,
       is_bestseller: body.bestseller === true,
@@ -148,17 +156,42 @@ export async function PATCH(request: Request) {
   if ("response" in access) return access.response;
   try {
     const body = await request.json();
-    if (typeof body.id !== "string" || !["Published", "Draft", "Archived"].includes(body.status)) {
-      return NextResponse.json({ error: "A product ID and valid status are required." }, { status: 400 });
+    if (typeof body.id !== "string" || !/^[0-9a-f-]{36}$/i.test(body.id)) {
+      return NextResponse.json({ error: "A valid product ID is required." }, { status: 400 });
     }
-    if (body.status === "Published") {
+    const update: { status?: string; show_on_rack?: boolean; rack_order?: number; updated_at: string } = {
+      updated_at: new Date().toISOString(),
+    };
+    if (body.status !== undefined) {
+      if (!["Published", "Draft", "Archived"].includes(body.status)) {
+        return NextResponse.json({ error: "Choose a valid product status." }, { status: 400 });
+      }
+      update.status = body.status;
+    }
+    if (body.showOnRack !== undefined) {
+      if (typeof body.showOnRack !== "boolean") {
+        return NextResponse.json({ error: "Rack visibility must be enabled or disabled." }, { status: 400 });
+      }
+      update.show_on_rack = body.showOnRack;
+    }
+    if (body.rackOrder !== undefined) {
+      const rackOrder = Number(body.rackOrder);
+      if (!Number.isInteger(rackOrder) || rackOrder < 0 || rackOrder > 10000) {
+        return NextResponse.json({ error: "Rack order must be a whole number between 0 and 10000." }, { status: 400 });
+      }
+      update.rack_order = rackOrder;
+    }
+    if (Object.keys(update).length === 1) {
+      return NextResponse.json({ error: "Provide a product status or rack setting to update." }, { status: 400 });
+    }
+    if (update.status === "Published") {
       const { count, error: imageError } = await access.service
         .from("product_images").select("id", { count: "exact", head: true }).eq("product_id", body.id);
       if (imageError) return NextResponse.json({ error: imageError.message }, { status: 400 });
       if (!count) return NextResponse.json({ error: "Upload at least one product photo before publishing this item." }, { status: 400 });
     }
     const { error } = await access.service.from("products")
-      .update({ status: body.status, updated_at: new Date().toISOString() })
+      .update(update)
       .eq("id", body.id);
     if (error) return NextResponse.json({ error: error.message }, { status: 400 });
     return NextResponse.json({ ok: true });
