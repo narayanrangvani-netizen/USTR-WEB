@@ -1,6 +1,6 @@
 import "server-only";
 
-import type { Product, ProductStatus } from "@/lib/products";
+import type { Product, ProductImage, ProductStatus } from "@/lib/products";
 import { getSupabaseServiceClient } from "./server";
 
 type CatalogRow = {
@@ -22,7 +22,16 @@ type CatalogRow = {
   care: string | null;
   colors: string[] | null;
   sizes: string[] | null;
-  product_images: { id: string; image_url: string; is_primary: boolean; sort_order: number }[];
+  show_on_rack: boolean;
+  rack_order: number;
+  product_images: {
+    id: string;
+    image_url: string;
+    is_primary: boolean;
+    sort_order: number;
+    image_role: ProductImage["role"];
+    image_color: string | null;
+  }[];
   product_variants: {
     color: string;
     size: string;
@@ -31,15 +40,18 @@ type CatalogRow = {
 };
 
 function mapProduct(row: CatalogRow): Product {
-  const images = [...(row.product_images ?? [])]
-    .sort((a, b) => Number(b.is_primary) - Number(a.is_primary) || a.sort_order - b.sort_order)
-    .map((image) => image.image_url);
+  const sortedImages = [...(row.product_images ?? [])]
+    .sort((a, b) => Number(b.is_primary) - Number(a.is_primary) || a.sort_order - b.sort_order);
+  const images = sortedImages.map((image) => image.image_url);
   const stock: Record<string, number> = {};
+  const variantStock: Record<string, number> = {};
 
   for (const variant of row.product_variants ?? []) {
     if (!(row.colors ?? []).includes(variant.color) || !(row.sizes ?? []).includes(variant.size)) continue;
     const inventory = Array.isArray(variant.inventory) ? variant.inventory[0] : variant.inventory;
-    stock[variant.color] = (stock[variant.color] ?? 0) + (inventory?.stock ?? 0);
+    const quantity = inventory?.stock ?? 0;
+    stock[variant.color] = (stock[variant.color] ?? 0) + quantity;
+    variantStock[JSON.stringify([variant.color, variant.size])] = quantity;
   }
 
   return {
@@ -55,10 +67,17 @@ function mapProduct(row: CatalogRow): Product {
     colors: row.colors ?? [],
     sizes: row.sizes ?? [],
     stock,
+    variantStock,
     images,
-    imageIds: [...(row.product_images ?? [])]
-      .sort((a, b) => Number(b.is_primary) - Number(a.is_primary) || a.sort_order - b.sort_order)
-      .map((image) => image.id),
+    imageIds: sortedImages.map((image) => image.id),
+    imageDetails: sortedImages.map((image) => ({
+      id: image.id,
+      url: image.image_url,
+      role: image.image_role,
+      color: image.image_color,
+    })),
+    showOnRack: row.show_on_rack,
+    rackOrder: row.rack_order,
     featured: row.is_featured,
     newArrival: row.is_new_arrival,
     bestseller: row.is_bestseller,
@@ -74,7 +93,8 @@ export async function listProducts(options: { includeUnpublished?: boolean } = {
   const supabase = getSupabaseServiceClient();
   let query = supabase
     .from("products")
-    .select("*, product_images(id, image_url, is_primary, sort_order), product_variants(color, size, inventory(stock))")
+    .select("*, product_images(id, image_url, is_primary, sort_order, image_role, image_color), product_variants(color, size, inventory(stock))")
+    .order("rack_order", { ascending: true })
     .order("created_at", { ascending: false });
 
   if (!options.includeUnpublished) query = query.eq("status", "Published");

@@ -24,6 +24,7 @@ export default function AdminProductsPage() {
     const matchesStatus = status === "All" || product.status === status;
     return matchesSearch && matchesStatus;
   }), [products, search, status]);
+  const rackCount = products.filter((product) => product.status === "Published" && product.showOnRack && product.images.length > 0).length;
 
   async function handleStatus(product: Product) {
     const nextStatus: Product["status"] = product.status === "Archived" ? "Draft" : "Archived";
@@ -56,6 +57,7 @@ export default function AdminProductsPage() {
           <option value="All">All status</option><option value="Published">Published</option><option value="Draft">Draft</option><option value="Archived">Archived</option>
         </select>
       </div>
+      {rackCount < 4 && <p className="rounded-2xl border border-[#ad8b68] bg-[#f2e9dd] p-4 text-sm text-[#63452f]">The showroom currently has {rackCount} of 4 recommended rack slots filled. Publish and enable rack visibility on more products to fill it.</p>}
       {error && <p role="alert" className="rounded-2xl bg-red-50 p-4 text-sm text-red-800">{error}</p>}
       {loading ? <p className="rounded-[24px] bg-[#f9f3ee] p-6 text-[#63452f]">Loading catalog…</p> : filteredProducts.length === 0 ? (
         <p className="rounded-[24px] bg-[#f9f3ee] p-6 text-[#63452f]">{products.length ? "No products match this filter." : "Your catalog is empty. Add a product to get started."}</p>
