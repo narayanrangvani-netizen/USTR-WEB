@@ -2,17 +2,42 @@
 
 import Image from "next/image";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type CSSProperties, type PointerEvent } from "react";
-import { fetchProducts, type Product, type ProductImage } from "@/lib/products";
+import { useCart } from "@/components/cart/CartProvider";
+import { calculateDiscount, fetchProducts, getVariantStock, type Product, type ProductImage } from "@/lib/products";
+import { CartLink } from "@/components/cart/CartLink";
+
+export type RackFilter = "all" | "men" | "women" | "new" | "bestsellers" | "t-shirts" | "shirts";
+
+const filters: { id: RackFilter; label: string }[] = [
+  { id: "all", label: "All" },
+  { id: "men", label: "Men" },
+  { id: "women", label: "Women" },
+  { id: "new", label: "New drops" },
+  { id: "bestsellers", label: "Bestsellers" },
+  { id: "t-shirts", label: "T-shirts" },
+  { id: "shirts", label: "Shirts" },
+];
+
+function firstAvailableSize(product: Product, color: string) {
+  return product.sizes.find((size) => getVariantStock(product, color, size) > 0) ?? "";
+}
 
 function imageFor(product: Product, role: ProductImage["role"], color: string) {
   const images = product.imageDetails ?? [];
-  const colorway = images.find((image) => image.role === "colorway" && image.color === color);
-  if (colorway) return colorway.url;
-  const selected = images.find((image) => image.role === role);
-  if (selected) return selected.url;
-  if (role === "side") return images.find((image) => image.role === "front")?.url ?? product.images[0];
-  if (role === "front" || role === "back") return product.images[0];
+  if (role === "back") return images.find((image) => image.role === "back")?.url ?? product.images[0];
+  if (role === "side") {
+    return images.find((image) => image.role === "side")?.url
+      ?? images.find((image) => image.role === "colorway" && image.color === color)?.url
+      ?? images.find((image) => image.role === "front")?.url
+      ?? product.images[0];
+  }
+  if (role === "front") {
+    return images.find((image) => image.role === "colorway" && image.color === color)?.url
+      ?? images.find((image) => image.role === "front")?.url
+      ?? product.images[0];
+  }
   return product.images[0];
 }
 
@@ -146,6 +171,9 @@ function RackGarment({
       >
         <span className="rack-hook" aria-hidden="true" />
         <span className="rack-hanger" aria-hidden="true" />
+        {(product.newArrival || product.bestseller) && (
+          <span className="rack-badge">{product.newArrival ? "NEW" : "BESTSELLER"}</span>
+        )}
         {(isFrontVisible ? frontImage : sideImage) ? (
           <Image
             src={(isFrontVisible ? frontImage : sideImage) ?? product.images[0]}
@@ -162,13 +190,20 @@ function RackGarment({
   );
 }
 
-export function Showroom() {
+export function Showroom({ initialFilter = "all" }: { initialFilter?: RackFilter }) {
+  const router = useRouter();
+  const { addToCart } = useCart();
   const [products, setProducts] = useState<Product[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [hoveredIndex, setHoveredIndex] = useState<number | null>(null);
   const [selected, setSelected] = useState<Product | null>(null);
   const [selectedColor, setSelectedColor] = useState("");
+  const [selectedSize, setSelectedSize] = useState("");
+  const [quantity, setQuantity] = useState(1);
+  const [purchaseError, setPurchaseError] = useState("");
+  const [filter, setFilter] = useState<RackFilter>(initialFilter);
+  const [rackPage, setRackPage] = useState(0);
   const [view, setView] = useState<"front" | "back">("front");
   const [mobileIndex, setMobileIndex] = useState(0);
   const isMobile = useMediaQuery("(max-width: 639px)");
@@ -191,17 +226,36 @@ export function Showroom() {
     if (closeTimer.current) clearTimeout(closeTimer.current);
   }, []);
 
-  const rackProducts = useMemo(
-    () => products
-      .filter((product) => product.status === "Published" && product.showOnRack && product.images.length > 0)
-      .sort((a, b) => a.rackOrder - b.rackOrder)
-      .slice(0, 10),
-    [products],
-  );
-  const activeProduct = selected ?? rackProducts[mobileIndex] ?? null;
-  const color = selectedColor && selected?.colors.includes(selectedColor)
-    ? selectedColor
-    : selected?.colors[0] ?? "";
+  const rackProducts = useMemo(() => products
+    .filter((product) => {
+      if (product.status !== "Published" || !product.showOnRack || product.images.length === 0) return false;
+      const normalizedCategory = product.category.toLowerCase().replace(/[^a-z]/g, "");
+      switch (filter) {
+        case "men": return product.gender === "Men" || product.gender === "Unisex";
+        case "women": return product.gender === "Women" || product.gender === "Unisex";
+        case "new": return product.newArrival;
+        case "bestsellers": return product.bestseller;
+        case "t-shirts": return normalizedCategory.includes("tshirt");
+        case "shirts": return normalizedCategory.includes("shirt") && !normalizedCategory.includes("tshirt");
+        default: return true;
+      }
+    })
+    .sort((a, b) => a.rackOrder - b.rackOrder), [filter, products]);
+  const pageCount = Math.max(1, Math.ceil(rackProducts.length / 10));
+  const visibleProducts = rackProducts.slice(rackPage * 10, rackPage * 10 + 10);
+  const activeProduct = selected ?? visibleProducts[mobileIndex] ?? null;
+  const color = activeProduct
+    ? selectedColor && activeProduct.colors.includes(selectedColor)
+      ? selectedColor
+      : activeProduct.colors[0] ?? ""
+    : "";
+  const availableSizes = activeProduct
+    ? activeProduct.sizes.filter((size) => getVariantStock(activeProduct, color, size) > 0)
+    : [];
+  const size = activeProduct && availableSizes.includes(selectedSize)
+    ? selectedSize
+    : availableSizes[0] ?? "";
+  const availableStock = activeProduct && size ? getVariantStock(activeProduct, color, size) : 0;
   const activeImage = activeProduct ? imageFor(activeProduct, view, color) : null;
   const canShowBack = Boolean(activeProduct && activeProduct.imageDetails?.some((image) => image.role === "back"));
   const hasColorImages = Boolean(activeProduct?.imageDetails?.some((image) => image.role === "colorway"));
@@ -216,7 +270,11 @@ export function Showroom() {
     });
     returnFocus.current = button;
     setSelected(product);
-    setSelectedColor(product.colors[0] ?? "");
+    const initialColor = product.colors[0] ?? "";
+    setSelectedColor(initialColor);
+    setSelectedSize(firstAvailableSize(product, initialColor));
+    setQuantity(1);
+    setPurchaseError("");
     setView("front");
     setClosing(false);
   }, []);
@@ -240,8 +298,15 @@ export function Showroom() {
     if (!selected || rackProducts.length < 2) return;
     const currentIndex = rackProducts.findIndex((product) => product.id === selected.id);
     const next = rackProducts[(currentIndex + direction + rackProducts.length) % rackProducts.length];
+    const nextIndex = (currentIndex + direction + rackProducts.length) % rackProducts.length;
+    const nextColor = next.colors[0] ?? "";
+    setRackPage(Math.floor(nextIndex / 10));
+    setMobileIndex(nextIndex % 10);
     setSelected(next);
-    setSelectedColor(next.colors[0] ?? "");
+    setSelectedColor(nextColor);
+    setSelectedSize(firstAvailableSize(next, nextColor));
+    setQuantity(1);
+    setPurchaseError("");
     setView("front");
     setOrigin(null);
   }, [rackProducts, selected]);
@@ -254,7 +319,7 @@ export function Showroom() {
       if (event.key === "ArrowLeft") moveProduct(-1);
       if (event.key === "Tab") {
         const dialog = document.querySelector<HTMLElement>(".product-dialog");
-        const focusable = dialog?.querySelectorAll<HTMLElement>("button:not(:disabled), a[href]");
+        const focusable = dialog?.querySelectorAll<HTMLElement>("button:not(:disabled), a[href], summary");
         if (!focusable?.length) return;
         const first = focusable[0];
         const last = focusable[focusable.length - 1];
@@ -277,7 +342,7 @@ export function Showroom() {
 
   useEffect(() => {
     const rack = rackRef.current;
-    if (!rack || rackProducts.length === 0) return;
+    if (!rack || rack.childElementCount === 0) return;
     const cards = Array.from(rack.querySelectorAll<HTMLElement>(".rack-item"));
     const observer = new IntersectionObserver((entries) => {
       const visible = entries
@@ -287,9 +352,51 @@ export function Showroom() {
     }, { root: rack, threshold: [0.35, 0.6, 0.85] });
     cards.forEach((card) => observer.observe(card));
     return () => observer.disconnect();
-  }, [rackProducts]);
+  }, [rackPage, rackProducts]);
 
-  const selectedIndex = selected ? rackProducts.findIndex((product) => product.id === selected.id) : isMobile ? mobileIndex : hoveredIndex ?? 0;
+  useEffect(() => {
+    rackRef.current?.scrollTo({ left: 0, behavior: reducedMotion ? "auto" : "smooth" });
+  }, [filter, rackPage, reducedMotion]);
+
+  const selectedIndex = selected ? visibleProducts.findIndex((product) => product.id === selected.id) : isMobile ? mobileIndex : hoveredIndex ?? 0;
+  const chooseFilter = (nextFilter: RackFilter) => {
+    setFilter(nextFilter);
+    setRackPage(0);
+    setMobileIndex(0);
+    setHoveredIndex(null);
+    setSelected(null);
+    setPurchaseError("");
+  };
+  const changeRackPage = (nextPage: number) => {
+    setRackPage(Math.max(0, Math.min(pageCount - 1, nextPage)));
+    setMobileIndex(0);
+    setHoveredIndex(null);
+  };
+  const changeColor = (nextColor: string) => {
+    setSelectedColor(nextColor);
+    if (activeProduct && getVariantStock(activeProduct, nextColor, selectedSize) < 1) {
+      setSelectedSize(firstAvailableSize(activeProduct, nextColor));
+    }
+    setQuantity(1);
+    setPurchaseError("");
+    setView("front");
+  };
+  const purchase = (buyNow: boolean) => {
+    if (!activeProduct || !size || !color || availableStock < quantity) {
+      setPurchaseError("Choose an available colour and size before adding this item.");
+      return;
+    }
+    const added = addToCart(activeProduct, { size, color }, quantity, !buyNow);
+    if (!added) {
+      setPurchaseError("This size is no longer available in that quantity. Please choose another size or quantity.");
+      return;
+    }
+    setPurchaseError("");
+    if (buyNow) {
+      setSelected(null);
+      router.push("/checkout");
+    }
+  };
   const supportStyle = origin
     ? ({
       "--fly-x": `${origin.x}px`,
@@ -301,10 +408,28 @@ export function Showroom() {
   return (
     <main className="showroom">
       <header className="showroom-header">
-        <span className="showroom-nav">ABOUT</span>
+        <Link href="/about" className="showroom-nav">ABOUT</Link>
         <Link href="/" className="showroom-wordmark" aria-label="USTR SUITS home">USTR SUITS</Link>
-        <span className="showroom-nav showroom-nav-right">CONTACT</span>
+        <Link href="/contact" className="showroom-nav showroom-nav-right">CONTACT</Link>
       </header>
+
+      <div className="rack-toolbar">
+        <nav className="rack-filters" aria-label="Shop collections">
+          {filters.map((item) => (
+            <button
+              key={item.id}
+              type="button"
+              aria-pressed={filter === item.id}
+              className={filter === item.id ? "rack-filter rack-filter-active" : "rack-filter"}
+              onClick={() => chooseFilter(item.id)}
+            >{item.label}</button>
+          ))}
+        </nav>
+        <div className="rack-utilities">
+          <Link href="/account" aria-label="Your account">ACCOUNT</Link>
+          <CartLink />
+        </div>
+      </div>
 
       <section className="rack-stage" aria-label="USTR SUITS clothing rack">
         <div className="rack-copy">
@@ -323,11 +448,11 @@ export function Showroom() {
         ) : rackProducts.length === 0 ? (
           <div className="rack-state">
             <p>The showroom is being prepared.</p>
-            <p className="rack-state-note">No published, rack-visible products with photos are available yet.</p>
+            <p className="rack-state-note">No published products with photos are available for this collection yet.</p>
           </div>
         ) : (
           <div className="rack-items" ref={rackRef} aria-label="Browse products; scroll horizontally on mobile">
-            {rackProducts.map((product, index) => {
+            {visibleProducts.map((product, index) => {
               const neighbor = hoveredIndex === null || hoveredIndex === index
                 ? 0
                 : index < hoveredIndex ? -1 : 1;
@@ -347,23 +472,30 @@ export function Showroom() {
           </div>
         )}
 
-        {!loading && !error && rackProducts.length > 0 && (
+        {!loading && !error && visibleProducts.length > 0 && (
           <p className="rack-caption" aria-live="polite">
-            {rackProducts[selectedIndex]?.name}
-            {rackProducts[selectedIndex]?.colors[0] ? ` — ${rackProducts[selectedIndex].colors[0]}` : ""}
+            {visibleProducts[selectedIndex]?.name}
+            {visibleProducts[selectedIndex]?.colors[0] ? ` — ${visibleProducts[selectedIndex].colors[0]}` : ""}
+            {visibleProducts[selectedIndex] && ` · ₹${visibleProducts[selectedIndex].price.toLocaleString("en-IN")}`}
+            {visibleProducts[selectedIndex] && calculateDiscount(visibleProducts[selectedIndex]) > 0
+              ? ` · ${calculateDiscount(visibleProducts[selectedIndex])}% OFF`
+              : ""}
           </p>
         )}
       </section>
 
+      {rackProducts.length > 10 && (
+        <nav className="rack-pagination" aria-label="More clothing rack items">
+          <button type="button" disabled={rackPage === 0} onClick={() => changeRackPage(rackPage - 1)}>← PREVIOUS</button>
+          <span>{rackPage + 1} / {pageCount}</span>
+          <button type="button" disabled={rackPage >= pageCount - 1} onClick={() => changeRackPage(rackPage + 1)}>NEXT →</button>
+        </nav>
+      )}
+
       <div className="availability-row">
-        <Link
-          href={activeProduct ? `/product/${activeProduct.slug}` : "/men"}
-          className="availability-button"
-        >
-          SEE AVAILABILITY
-        </Link>
+        {activeProduct && <Link href={`/product/${activeProduct.slug}`} className="availability-button">SEE AVAILABILITY</Link>}
         {rackProducts.length > 0 && rackProducts.length < 4 && (
-          <p className="rack-state-note">{rackProducts.length} of 4 recommended rack slots are currently filled.</p>
+          <p className="rack-state-note">{rackProducts.length} published item{rackProducts.length === 1 ? "" : "s"} in this collection.</p>
         )}
       </div>
 
@@ -404,23 +536,26 @@ export function Showroom() {
                 <div className="focus-price">
                   <span>₹{activeProduct.price.toLocaleString("en-IN")}</span>
                   {activeProduct.mrp > activeProduct.price && <del>₹{activeProduct.mrp.toLocaleString("en-IN")}</del>}
+                  {calculateDiscount(activeProduct) > 0 && <span className="focus-discount">{calculateDiscount(activeProduct)}% OFF</span>}
                 </div>
               </div>
+              <p className="focus-inventory" aria-live="polite">
+                {!color ? "Choose a colour" : availableStock > 0 ? `${availableStock} available in size ${size}` : "Currently unavailable in this size"}
+              </p>
               {activeProduct.colors.length > 0 && (
                 <div className="focus-colors" aria-label="Available colours">
                   {activeProduct.colors.map((itemColor) => {
                     const hasImage = activeProduct.imageDetails?.some((image) => image.role === "colorway" && image.color === itemColor);
+                    const hasStock = activeProduct.sizes.some((itemSize) => getVariantStock(activeProduct, itemColor, itemSize) > 0);
                     return (
                       <button
                         key={itemColor}
                         type="button"
                         className={`colour-label ${color === itemColor ? "colour-label-active" : ""}`}
                         aria-pressed={color === itemColor}
-                        aria-label={`${itemColor}${hasImage ? "" : " colour photo not uploaded"}`}
-                        onClick={() => {
-                          setSelectedColor(itemColor);
-                          setView("front");
-                        }}
+                        aria-label={`${itemColor}${hasImage ? "" : " colour photo not uploaded"}${hasStock ? "" : ", out of stock"}`}
+                        disabled={!hasStock}
+                        onClick={() => changeColor(itemColor)}
                       >
                         {itemColor}
                       </button>
@@ -437,6 +572,41 @@ export function Showroom() {
                 </div>
                 <Link href={`/product/${activeProduct.slug}`} className="focus-availability">SEE AVAILABILITY ↗</Link>
               </div>
+              <div className="focus-size-picker">
+                <div className="focus-size-heading">
+                  <span>SIZE</span>
+                  <details className="focus-size-guide">
+                    <summary>SIZE GUIDE</summary>
+                    <p>{activeProduct.fit ? `Fit: ${activeProduct.fit}. ` : ""}Detailed garment measurements are not listed for this item. <Link href="/contact">Contact us</Link> for sizing help.</p>
+                  </details>
+                </div>
+                <div className="focus-sizes" role="group" aria-label="Choose a size">
+                  {activeProduct.sizes.map((itemSize) => {
+                    const stock = getVariantStock(activeProduct, color, itemSize);
+                    return (
+                      <button
+                        key={itemSize}
+                        type="button"
+                        disabled={stock < 1}
+                        aria-pressed={size === itemSize}
+                        aria-label={`Size ${itemSize}${stock > 0 ? `, ${stock} available` : ", out of stock"}`}
+                        onClick={() => { setSelectedSize(itemSize); setQuantity(1); setPurchaseError(""); }}
+                      >{itemSize}</button>
+                    );
+                  })}
+                </div>
+                {availableSizes.length === 0 && <p className="focus-stock-empty">This colour is currently out of stock.</p>}
+              </div>
+              <div className="focus-buy-row">
+                <div className="focus-quantity" aria-label="Quantity">
+                  <button type="button" aria-label="Decrease quantity" disabled={quantity <= 1} onClick={() => setQuantity((value) => Math.max(1, value - 1))}>−</button>
+                  <span aria-live="polite">{quantity}</span>
+                  <button type="button" aria-label="Increase quantity" disabled={quantity >= Math.min(10, availableStock)} onClick={() => setQuantity((value) => Math.min(10, availableStock, value + 1))}>+</button>
+                </div>
+                <button type="button" className="focus-add-button" disabled={!size || availableStock < 1} onClick={() => purchase(false)}>ADD TO BAG</button>
+                <button type="button" className="focus-buy-button" disabled={!size || availableStock < 1} onClick={() => purchase(true)}>BUY NOW</button>
+              </div>
+              {purchaseError && <p className="focus-purchase-error" role="alert">{purchaseError}</p>}
             </div>
           </section>
         </div>

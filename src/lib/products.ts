@@ -13,6 +13,7 @@ export type Product = {
   colors: string[];
   sizes: string[];
   stock: Record<string, number>;
+  variantStock: Record<string, number>;
   images: string[];
   imageIds?: string[];
   imageDetails?: ProductImage[];
@@ -34,6 +35,10 @@ export type ProductImage = {
   role: "side" | "front" | "back" | "colorway";
   color: string | null;
 };
+
+export function getVariantStock(product: Product, color: string, size: string) {
+  return product.variantStock[JSON.stringify([color, size])] ?? 0;
+}
 
 export async function fetchProducts(includeUnpublished = false): Promise<Product[]> {
   const response = await fetch(includeUnpublished ? "/api/admin/products" : "/api/catalog", {

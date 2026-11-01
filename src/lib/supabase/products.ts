@@ -44,11 +44,14 @@ function mapProduct(row: CatalogRow): Product {
     .sort((a, b) => Number(b.is_primary) - Number(a.is_primary) || a.sort_order - b.sort_order);
   const images = sortedImages.map((image) => image.image_url);
   const stock: Record<string, number> = {};
+  const variantStock: Record<string, number> = {};
 
   for (const variant of row.product_variants ?? []) {
     if (!(row.colors ?? []).includes(variant.color) || !(row.sizes ?? []).includes(variant.size)) continue;
     const inventory = Array.isArray(variant.inventory) ? variant.inventory[0] : variant.inventory;
-    stock[variant.color] = (stock[variant.color] ?? 0) + (inventory?.stock ?? 0);
+    const quantity = inventory?.stock ?? 0;
+    stock[variant.color] = (stock[variant.color] ?? 0) + quantity;
+    variantStock[JSON.stringify([variant.color, variant.size])] = quantity;
   }
 
   return {
@@ -64,6 +67,7 @@ function mapProduct(row: CatalogRow): Product {
     colors: row.colors ?? [],
     sizes: row.sizes ?? [],
     stock,
+    variantStock,
     images,
     imageIds: sortedImages.map((image) => image.id),
     imageDetails: sortedImages.map((image) => ({

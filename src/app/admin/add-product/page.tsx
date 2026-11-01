@@ -57,12 +57,20 @@ export default function AddProductPage() {
   const editId = params.get("edit");
   const [form, setForm] = useState<ProductForm>(emptyForm);
   const [files, setFiles] = useState<File[]>([]);
+  const [previewFileUrl, setPreviewFileUrl] = useState("");
   const [images, setImages] = useState<{ id: string; url: string; role: string; color: string | null }[]>([]);
   const [imageRole, setImageRole] = useState<"side" | "front" | "back" | "colorway">("front");
   const [imageColor, setImageColor] = useState("");
   const [loadingProduct, setLoadingProduct] = useState(Boolean(editId));
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
+  const previewImage = previewFileUrl || images.find((image) => image.role === "front")?.url || images[0]?.url;
+
+  useEffect(() => {
+    return () => {
+      if (previewFileUrl) URL.revokeObjectURL(previewFileUrl);
+    };
+  }, [previewFileUrl]);
 
   useEffect(() => {
     if (!editId) return;
@@ -104,6 +112,12 @@ export default function AddProductPage() {
 
   function setField<K extends keyof ProductForm>(field: K, value: ProductForm[K]) {
     setForm((current) => ({ ...current, [field]: value }));
+  }
+
+  function setProductFiles(nextFiles: File[]) {
+    if (previewFileUrl) URL.revokeObjectURL(previewFileUrl);
+    setPreviewFileUrl(nextFiles[0] ? URL.createObjectURL(nextFiles[0]) : "");
+    setFiles(nextFiles);
   }
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
@@ -198,14 +212,25 @@ export default function AddProductPage() {
             <label className="block"><span className="mb-2 block text-sm font-medium text-[#63452f]">Image view</span><select value={imageRole} onChange={(event) => setImageRole(event.target.value as typeof imageRole)} className="w-full rounded-2xl border border-stone-300 bg-white px-4 py-3"><option value="front">Front</option><option value="side">Side</option><option value="back">Back</option><option value="colorway">Colourway</option></select></label>
             {imageRole === "colorway" && <label className="block"><span className="mb-2 block text-sm font-medium text-[#63452f]">Colour for these images</span><select value={imageColor} onChange={(event) => setImageColor(event.target.value)} className="w-full rounded-2xl border border-stone-300 bg-white px-4 py-3" required><option value="">Select a product colour</option>{form.colors.split(",").map((color) => color.trim()).filter(Boolean).map((color) => <option key={color} value={color}>{color}</option>)}</select></label>}
           </div>
-          <label className="block"><span className="sr-only">Choose product photos</span><input type="file" accept="image/jpeg,image/png,image/webp" multiple onChange={(event) => setFiles(Array.from(event.target.files ?? []))} className="block w-full text-sm text-[#63452f] file:mr-4 file:rounded-full file:border-0 file:bg-[#29221d] file:px-5 file:py-2 file:text-sm file:font-semibold file:text-white" /></label>
+          <label className="block"><span className="sr-only">Choose product photos</span><input type="file" accept="image/jpeg,image/png,image/webp" multiple onChange={(event) => setProductFiles(Array.from(event.target.files ?? []))} className="block w-full text-sm text-[#63452f] file:mr-4 file:rounded-full file:border-0 file:bg-[#29221d] file:px-5 file:py-2 file:text-sm file:font-semibold file:text-white" /></label>
           {files.length > 0 && <p className="text-sm text-[#63452f]">{files.length} {imageRole} photo{files.length === 1 ? "" : "s"} selected. They upload when you save.</p>}
         </section>
 
         <section className="grid gap-4 rounded-2xl border border-stone-200 bg-white p-5 sm:grid-cols-2">
-          <div className="sm:col-span-2"><h2 className="font-semibold text-[#29221d]">Showroom rack</h2><p className="mt-1 text-sm text-[#63452f]">Only published products with uploaded images appear. The first 10 rack products, in order, are shown.</p></div>
+          <div className="sm:col-span-2"><h2 className="font-semibold text-[#29221d]">Showroom rack</h2><p className="mt-1 text-sm text-[#63452f]">Only published products with uploaded images appear. Up to 10 products are shown per rack page, in order.</p></div>
           <label className="flex items-center gap-3 text-sm text-[#63452f]"><input checked={form.showOnRack} onChange={(event) => setField("showOnRack", event.target.checked)} type="checkbox" />Show on clothing rack</label>
           <label className="block"><span className="mb-2 block text-sm font-medium text-[#63452f]">Rack display order</span><input type="number" min="0" max="10000" value={form.rackOrder} onChange={(event) => setField("rackOrder", event.target.value)} className="w-full rounded-2xl border border-stone-300 bg-white px-4 py-3" /></label>
+          <div className="rack-product-preview sm:col-span-2">
+            <div className="rack-product-preview-image">
+              {previewImage ? <Image src={previewImage} alt={`${form.name || "Product"} showroom preview`} fill sizes="112px" unoptimized /> : <span>Upload a front photo to preview</span>}
+            </div>
+            <div>
+              <p className="rack-product-preview-eyebrow">{form.gender} · {form.category === "Other" ? form.customCategory || "Collection" : form.category}</p>
+              <p className="rack-product-preview-name">{form.name || "New garment"}</p>
+              {form.price && <p className="rack-product-preview-price">₹{Number(form.price).toLocaleString("en-IN")}</p>}
+              <p className="rack-product-preview-note">Preview uses the actual photo selected above; no sample garment is shown.</p>
+            </div>
+          </div>
         </section>
 
         <div className="flex flex-wrap gap-4">
