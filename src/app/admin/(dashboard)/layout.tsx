@@ -9,7 +9,7 @@ async function AdminGuard({ children }: { children: React.ReactNode }) {
   return <AdminShell>{children}</AdminShell>;
 }
 
-export default function AdminLayout({ children }: { children: React.ReactNode }) {
+export default function AdminDashboardLayout({ children }: { children: React.ReactNode }) {
   return (
     <Suspense fallback={<div className="p-8 text-[#63452f]">Checking admin access…</div>}>
       <AdminGuard>{children}</AdminGuard>
