@@ -1,26 +1,47 @@
 "use client";
 
 import { useRouter, useSearchParams } from "next/navigation";
-import { useEffect, useState } from "react";
-import { DEFAULT_PRODUCTS, getCatalogProducts, saveCatalogProducts, type Product } from "@/lib/products";
+import Image from "next/image";
+import { useEffect, useState, type FormEvent } from "react";
+import { fetchProducts, type Product } from "@/lib/products";
 
-const baseForm = {
+type ProductForm = {
+  name: string;
+  category: string;
+  gender: Product["gender"];
+  description: string;
+  price: string;
+  mrp: string;
+  colors: string;
+  sizes: string;
+  stock: string;
+  sku: string;
+  fabric: string;
+  fit: string;
+  care: string;
+  status: Product["status"];
+  featured: boolean;
+  newArrival: boolean;
+  bestseller: boolean;
+};
+
+const emptyForm: ProductForm = {
   name: "",
-  category: "Oversized T-shirts",
+  category: "",
   gender: "Men",
-  type: "Graphic T-shirts",
   description: "",
-  price: "999",
-  mrp: "1499",
-  colors: "Black, Sand",
-  sizes: "S, M, L, XL",
-  sku: "UST-NEW",
-  fabric: "Premium cotton",
-  fit: "Relaxed fit",
-  care: "Wash cold, line dry",
-  status: "Published",
+  price: "",
+  mrp: "",
+  colors: "",
+  sizes: "",
+  stock: "10",
+  sku: "",
+  fabric: "",
+  fit: "",
+  care: "",
+  status: "Draft",
   featured: false,
-  newArrival: true,
+  newArrival: false,
   bestseller: false,
 };
 
@@ -28,72 +49,103 @@ export default function AddProductPage() {
   const router = useRouter();
   const params = useSearchParams();
   const editId = params.get("edit");
-  const [form, setForm] = useState(baseForm);
+  const [form, setForm] = useState<ProductForm>(emptyForm);
+  const [files, setFiles] = useState<File[]>([]);
+  const [images, setImages] = useState<{ id: string; url: string }[]>([]);
+  const [loadingProduct, setLoadingProduct] = useState(Boolean(editId));
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
 
   useEffect(() => {
-    const products = getCatalogProducts();
-    const target = products.find((product) => product.id === editId);
-    if (!target) return;
-    setForm({
-      name: target.name,
-      category: target.category,
-      gender: target.gender,
-      type: target.type,
-      description: target.description,
-      price: String(target.price),
-      mrp: String(target.mrp),
-      colors: target.colors.join(", "),
-      sizes: target.sizes.join(", "),
-      sku: target.sku,
-      fabric: target.fabric,
-      fit: target.fit,
-      care: target.care,
-      status: target.status,
-      featured: target.featured,
-      newArrival: target.newArrival,
-      bestseller: target.bestseller,
-    });
+    if (!editId) return;
+    fetchProducts(true)
+      .then((products) => {
+        const product = products.find((entry) => entry.id === editId);
+        if (!product) throw new Error("This product could not be found.");
+        setForm({
+          name: product.name,
+          category: product.category,
+          gender: product.gender,
+          description: product.description,
+          price: String(product.price),
+          mrp: String(product.mrp),
+          colors: product.colors.join(", "),
+          sizes: product.sizes.join(", "),
+          stock: "",
+          sku: product.sku,
+          fabric: product.fabric,
+          fit: product.fit,
+          care: product.care,
+          status: product.status,
+          featured: product.featured,
+          newArrival: product.newArrival,
+          bestseller: product.bestseller,
+        });
+        setImages(product.images.flatMap((url, index) => {
+          const id = product.imageIds?.[index];
+          return id ? [{ id, url }] : [];
+        }));
+      })
+      .catch((reason: unknown) => setError(reason instanceof Error ? reason.message : "Could not load product."))
+      .finally(() => setLoadingProduct(false));
   }, [editId]);
 
-  const handleChange = (field: string, value: string | boolean) => {
+  function setField<K extends keyof ProductForm>(field: K, value: ProductForm[K]) {
     setForm((current) => ({ ...current, [field]: value }));
-  };
+  }
 
-  const handleSubmit = (event: React.FormEvent<HTMLFormElement>) => {
+  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const products = getCatalogProducts();
+    setSaving(true);
+    setError("");
 
-    const nextProduct: Product = {
-      id: editId ?? `prod-${Date.now()}`,
-      slug: (form.name || "new-product").toLowerCase().trim().replace(/\s+/g, "-").replace(/[^a-z0-9-]/g, ""),
-      name: form.name,
-      gender: form.gender as Product["gender"],
-      category: form.category,
-      type: form.type,
-      description: form.description,
-      price: Number(form.price),
-      mrp: Number(form.mrp),
-      colors: form.colors.split(",").map((value) => value.trim()).filter(Boolean),
-      sizes: form.sizes.split(",").map((value) => value.trim()).filter(Boolean),
-      stock: Object.fromEntries(form.sizes.split(",").map((size) => [size.trim(), 10])),
-      images: [
-        "https://images.unsplash.com/photo-1521572267360-ee0c2909d518?auto=format&fit=crop&w=900&q=80",
-        "https://images.unsplash.com/photo-1529139574466-a303027c1d8b?auto=format&fit=crop&w=900&q=80",
-      ],
-      featured: Boolean(form.featured),
-      newArrival: Boolean(form.newArrival),
-      bestseller: Boolean(form.bestseller),
-      status: form.status as Product["status"],
-      fabric: form.fabric,
-      fit: form.fit,
-      care: form.care,
-      sku: form.sku,
-    };
+    try {
+      const payload = {
+        ...(editId ? { id: editId } : {}),
+        ...form,
+        price: Number(form.price),
+        mrp: Number(form.mrp),
+        stock: form.stock === "" && editId ? "" : Number(form.stock),
+        colors: form.colors.split(",").map((value) => value.trim()).filter(Boolean),
+        sizes: form.sizes.split(",").map((value) => value.trim()).filter(Boolean),
+      };
+      const response = await fetch("/api/admin/products", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      const body = await response.json();
+      if (!response.ok) throw new Error(body.error ?? "Could not save product.");
 
-    const withProduct = editId ? products.map((product) => (product.id === editId ? nextProduct : product)) : [nextProduct, ...products];
-    saveCatalogProducts(withProduct);
-    router.push("/admin/products");
-  };
+      for (const file of files) {
+        const data = new FormData();
+        data.set("file", file);
+        const upload = await fetch(`/api/admin/products/${body.id}/images`, { method: "POST", body: data });
+        const uploadBody = await upload.json();
+        if (!upload.ok) throw new Error(uploadBody.error ?? "Product saved, but an image could not be uploaded.");
+      }
+
+      router.push("/admin/products");
+      router.refresh();
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Could not save product.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function removeImage(id: string) {
+    setError("");
+    const response = await fetch(`/api/admin/images/${id}`, { method: "DELETE" });
+    const body = await response.json();
+    if (!response.ok) {
+      setError(body.error ?? "Could not remove image.");
+      return;
+    }
+    setImages((current) => current.filter((image) => image.id !== id));
+  }
+
+  if (loadingProduct) return <p className="p-6 text-[#63452f]">Loading product…</p>;
 
   return (
     <div className="space-y-6">
@@ -104,91 +156,38 @@ export default function AddProductPage() {
 
       <form onSubmit={handleSubmit} className="space-y-6 rounded-[28px] border border-stone-200 bg-[#f9f3ee] p-6">
         <div className="grid gap-5 md:grid-cols-2">
-          <label className="block">
-            <span className="mb-2 block text-sm font-medium text-[#63452f]">Product name</span>
-            <input value={form.name} onChange={(event) => handleChange("name", event.target.value)} className="w-full rounded-2xl border border-stone-300 bg-white px-4 py-3" required />
-          </label>
-          <label className="block">
-            <span className="mb-2 block text-sm font-medium text-[#63452f]">SKU</span>
-            <input value={form.sku} onChange={(event) => handleChange("sku", event.target.value)} className="w-full rounded-2xl border border-stone-300 bg-white px-4 py-3" required />
-          </label>
-          <label className="block">
-            <span className="mb-2 block text-sm font-medium text-[#63452f]">Gender collection</span>
-            <select value={form.gender} onChange={(event) => handleChange("gender", event.target.value)} className="w-full rounded-2xl border border-stone-300 bg-white px-4 py-3">
-              <option value="Men">Men</option>
-              <option value="Women">Women</option>
-              <option value="Unisex">Unisex</option>
-            </select>
-          </label>
-          <label className="block">
-            <span className="mb-2 block text-sm font-medium text-[#63452f]">Category</span>
-            <input value={form.category} onChange={(event) => handleChange("category", event.target.value)} className="w-full rounded-2xl border border-stone-300 bg-white px-4 py-3" required />
-          </label>
-          <label className="block">
-            <span className="mb-2 block text-sm font-medium text-[#63452f]">Product type</span>
-            <input value={form.type} onChange={(event) => handleChange("type", event.target.value)} className="w-full rounded-2xl border border-stone-300 bg-white px-4 py-3" required />
-          </label>
-          <label className="block">
-            <span className="mb-2 block text-sm font-medium text-[#63452f]">Status</span>
-            <select value={form.status} onChange={(event) => handleChange("status", event.target.value)} className="w-full rounded-2xl border border-stone-300 bg-white px-4 py-3">
-              <option value="Draft">Draft</option>
-              <option value="Published">Published</option>
-            </select>
-          </label>
-          <label className="block">
-            <span className="mb-2 block text-sm font-medium text-[#63452f]">Selling price</span>
-            <input type="number" value={form.price} onChange={(event) => handleChange("price", event.target.value)} className="w-full rounded-2xl border border-stone-300 bg-white px-4 py-3" required />
-          </label>
-          <label className="block">
-            <span className="mb-2 block text-sm font-medium text-[#63452f]">Original MRP</span>
-            <input type="number" value={form.mrp} onChange={(event) => handleChange("mrp", event.target.value)} className="w-full rounded-2xl border border-stone-300 bg-white px-4 py-3" required />
-          </label>
-          <label className="block md:col-span-2">
-            <span className="mb-2 block text-sm font-medium text-[#63452f]">Description</span>
-            <textarea value={form.description} onChange={(event) => handleChange("description", event.target.value)} className="min-h-32 w-full rounded-2xl border border-stone-300 bg-white px-4 py-3" required />
-          </label>
-          <label className="block md:col-span-2">
-            <span className="mb-2 block text-sm font-medium text-[#63452f]">Available sizes</span>
-            <input value={form.sizes} onChange={(event) => handleChange("sizes", event.target.value)} className="w-full rounded-2xl border border-stone-300 bg-white px-4 py-3" required />
-          </label>
-          <label className="block md:col-span-2">
-            <span className="mb-2 block text-sm font-medium text-[#63452f]">Available colours</span>
-            <input value={form.colors} onChange={(event) => handleChange("colors", event.target.value)} className="w-full rounded-2xl border border-stone-300 bg-white px-4 py-3" required />
-          </label>
-          <label className="block">
-            <span className="mb-2 block text-sm font-medium text-[#63452f]">Fabric info</span>
-            <input value={form.fabric} onChange={(event) => handleChange("fabric", event.target.value)} className="w-full rounded-2xl border border-stone-300 bg-white px-4 py-3" required />
-          </label>
-          <label className="block">
-            <span className="mb-2 block text-sm font-medium text-[#63452f]">Fit</span>
-            <input value={form.fit} onChange={(event) => handleChange("fit", event.target.value)} className="w-full rounded-2xl border border-stone-300 bg-white px-4 py-3" required />
-          </label>
-          <label className="block md:col-span-2">
-            <span className="mb-2 block text-sm font-medium text-[#63452f]">Care instructions</span>
-            <input value={form.care} onChange={(event) => handleChange("care", event.target.value)} className="w-full rounded-2xl border border-stone-300 bg-white px-4 py-3" required />
-          </label>
+          <label className="block"><span className="mb-2 block text-sm font-medium text-[#63452f]">Product name</span><input value={form.name} onChange={(event) => setField("name", event.target.value)} className="w-full rounded-2xl border border-stone-300 bg-white px-4 py-3" minLength={2} required /></label>
+          <label className="block"><span className="mb-2 block text-sm font-medium text-[#63452f]">SKU</span><input value={form.sku} onChange={(event) => setField("sku", event.target.value)} className="w-full rounded-2xl border border-stone-300 bg-white px-4 py-3" minLength={3} required /></label>
+          <label className="block"><span className="mb-2 block text-sm font-medium text-[#63452f]">Gender collection</span><select value={form.gender} onChange={(event) => setField("gender", event.target.value as Product["gender"])} className="w-full rounded-2xl border border-stone-300 bg-white px-4 py-3"><option value="Men">Men</option><option value="Women">Women</option><option value="Unisex">Unisex</option></select></label>
+          <label className="block"><span className="mb-2 block text-sm font-medium text-[#63452f]">Category</span><input value={form.category} onChange={(event) => setField("category", event.target.value)} className="w-full rounded-2xl border border-stone-300 bg-white px-4 py-3" required /></label>
+          <label className="block"><span className="mb-2 block text-sm font-medium text-[#63452f]">Status</span><select value={form.status} onChange={(event) => setField("status", event.target.value as Product["status"])} className="w-full rounded-2xl border border-stone-300 bg-white px-4 py-3"><option value="Draft">Draft</option><option value="Published">Published</option><option value="Archived">Archived</option></select></label>
+          <label className="block"><span className="mb-2 block text-sm font-medium text-[#63452f]">Selling price (₹)</span><input type="number" min="1" step="0.01" value={form.price} onChange={(event) => setField("price", event.target.value)} className="w-full rounded-2xl border border-stone-300 bg-white px-4 py-3" required /></label>
+          <label className="block"><span className="mb-2 block text-sm font-medium text-[#63452f]">Original MRP (₹)</span><input type="number" min="1" step="0.01" value={form.mrp} onChange={(event) => setField("mrp", event.target.value)} className="w-full rounded-2xl border border-stone-300 bg-white px-4 py-3" required /></label>
+          <label className="block"><span className="mb-2 block text-sm font-medium text-[#63452f]">{editId ? "Set stock for every variant (optional)" : "Starting stock per size/colour"}</span><input type="number" min="0" max="10000" value={form.stock} onChange={(event) => setField("stock", event.target.value)} className="w-full rounded-2xl border border-stone-300 bg-white px-4 py-3" required={!editId} /><span className="mt-1 block text-xs text-[#63452f]">{editId ? "Leave blank to keep each size and colour’s current stock." : "This quantity is applied to every size/colour combination."}</span></label>
+          <label className="block md:col-span-2"><span className="mb-2 block text-sm font-medium text-[#63452f]">Description</span><textarea value={form.description} onChange={(event) => setField("description", event.target.value)} className="min-h-32 w-full rounded-2xl border border-stone-300 bg-white px-4 py-3" required /></label>
+          <label className="block md:col-span-2"><span className="mb-2 block text-sm font-medium text-[#63452f]">Available sizes (comma separated)</span><input value={form.sizes} onChange={(event) => setField("sizes", event.target.value)} className="w-full rounded-2xl border border-stone-300 bg-white px-4 py-3" placeholder="S, M, L, XL" required /></label>
+          <label className="block md:col-span-2"><span className="mb-2 block text-sm font-medium text-[#63452f]">Available colours (comma separated)</span><input value={form.colors} onChange={(event) => setField("colors", event.target.value)} className="w-full rounded-2xl border border-stone-300 bg-white px-4 py-3" placeholder="Black, Sand" required /></label>
+          <label className="block"><span className="mb-2 block text-sm font-medium text-[#63452f]">Fabric info</span><input value={form.fabric} onChange={(event) => setField("fabric", event.target.value)} className="w-full rounded-2xl border border-stone-300 bg-white px-4 py-3" /></label>
+          <label className="block"><span className="mb-2 block text-sm font-medium text-[#63452f]">Fit</span><input value={form.fit} onChange={(event) => setField("fit", event.target.value)} className="w-full rounded-2xl border border-stone-300 bg-white px-4 py-3" /></label>
+          <label className="block md:col-span-2"><span className="mb-2 block text-sm font-medium text-[#63452f]">Care instructions</span><input value={form.care} onChange={(event) => setField("care", event.target.value)} className="w-full rounded-2xl border border-stone-300 bg-white px-4 py-3" /></label>
         </div>
+
+        <section className="space-y-4 rounded-2xl border border-stone-200 bg-white p-5">
+          <div><h2 className="font-semibold text-[#29221d]">Product photos</h2><p className="mt-1 text-sm text-[#63452f]">JPG, PNG, or WebP; up to 5 MB per photo. Add at least one photo before publishing.</p></div>
+          {images.length > 0 && <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">{images.map((image) => (
+            <div key={image.id} className="relative"><Image src={image.url} alt="Product" width={288} height={144} unoptimized className="h-36 w-full rounded-xl object-cover" /><button type="button" onClick={() => void removeImage(image.id)} className="absolute right-2 top-2 rounded-full bg-white px-3 py-1 text-xs font-semibold text-red-700 shadow">Remove</button></div>
+          ))}</div>}
+          <label className="block"><span className="sr-only">Choose product photos</span><input type="file" accept="image/jpeg,image/png,image/webp" multiple onChange={(event) => setFiles(Array.from(event.target.files ?? []))} className="block w-full text-sm text-[#63452f] file:mr-4 file:rounded-full file:border-0 file:bg-[#29221d] file:px-5 file:py-2 file:text-sm file:font-semibold file:text-white" /></label>
+          {files.length > 0 && <p className="text-sm text-[#63452f]">{files.length} photo{files.length === 1 ? "" : "s"} selected. They upload when you save.</p>}
+        </section>
 
         <div className="flex flex-wrap gap-4">
-          <label className="flex items-center gap-2 text-sm text-[#63452f]">
-            <input checked={Boolean(form.newArrival)} onChange={(event) => handleChange("newArrival", event.target.checked)} type="checkbox" />
-            New arrival
-          </label>
-          <label className="flex items-center gap-2 text-sm text-[#63452f]">
-            <input checked={Boolean(form.bestseller)} onChange={(event) => handleChange("bestseller", event.target.checked)} type="checkbox" />
-            Bestseller
-          </label>
-          <label className="flex items-center gap-2 text-sm text-[#63452f]">
-            <input checked={Boolean(form.featured)} onChange={(event) => handleChange("featured", event.target.checked)} type="checkbox" />
-            Featured product
-          </label>
+          <label className="flex items-center gap-2 text-sm text-[#63452f]"><input checked={form.newArrival} onChange={(event) => setField("newArrival", event.target.checked)} type="checkbox" />New arrival</label>
+          <label className="flex items-center gap-2 text-sm text-[#63452f]"><input checked={form.bestseller} onChange={(event) => setField("bestseller", event.target.checked)} type="checkbox" />Bestseller</label>
+          <label className="flex items-center gap-2 text-sm text-[#63452f]"><input checked={form.featured} onChange={(event) => setField("featured", event.target.checked)} type="checkbox" />Featured product</label>
         </div>
-
-        <div className="flex justify-end">
-          <button type="submit" className="rounded-full bg-[#29221d] px-6 py-3 text-sm font-semibold uppercase tracking-[0.2em] text-white">
-            Save product
-          </button>
-        </div>
+        {error && <p role="alert" className="rounded-2xl bg-red-50 p-4 text-sm text-red-800">{error}</p>}
+        <div className="flex justify-end"><button type="submit" disabled={saving} className="rounded-full bg-[#29221d] px-6 py-3 text-sm font-semibold uppercase tracking-[0.2em] text-white disabled:opacity-60">{saving ? "Saving…" : "Save product"}</button></div>
       </form>
     </div>
   );

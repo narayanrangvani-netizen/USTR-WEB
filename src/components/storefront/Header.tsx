@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { CartLink } from "@/components/cart/CartLink";
 
 const navItems = [
   { label: "Men", href: "/men" },
@@ -31,19 +32,13 @@ export function Header() {
               <path d="M16 16L21 21" />
             </svg>
           </button>
-          <button aria-label="Account" className="rounded-full border border-stone-300 p-2 transition hover:border-[#63452f]">
+          <Link href="/account" aria-label="Account" className="rounded-full border border-stone-300 p-2 transition hover:border-[#63452f]">
             <svg viewBox="0 0 24 24" className="h-4 w-4 fill-none stroke-current stroke-2">
               <circle cx="12" cy="8" r="4" />
               <path d="M5 20c1.5-3 4.2-4.5 7-4.5s5.5 1.5 7 4.5" />
             </svg>
-          </button>
-          <Link href="/cart" aria-label="Cart" className="rounded-full border border-stone-300 p-2 transition hover:border-[#63452f]">
-            <svg viewBox="0 0 24 24" className="h-4 w-4 fill-none stroke-current stroke-2">
-              <circle cx="9" cy="18" r="1.5" />
-              <circle cx="17" cy="18" r="1.5" />
-              <path d="M3 4h2l2.4 9.2A2 2 0 0 0 9.3 15h8.2a2 2 0 0 0 1.9-1.5L21 7H7" />
-            </svg>
           </Link>
+          <CartLink />
         </div>
       </div>
     </header>

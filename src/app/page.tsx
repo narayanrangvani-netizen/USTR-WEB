@@ -6,7 +6,7 @@ import { Header } from "@/components/storefront/Header";
 import { Hero } from "@/components/storefront/Hero";
 import { Newsletter } from "@/components/storefront/Newsletter";
 import { ProductCard } from "@/components/storefront/ProductCard";
-import { DEFAULT_PRODUCTS, getCatalogProducts, type Product } from "@/lib/products";
+import { fetchProducts, type Product } from "@/lib/products";
 
 const categories = [
   { label: "Oversized Tees", image: "https://images.unsplash.com/photo-1521572267360-ee0c2909d518?auto=format&fit=crop&w=1200&q=80" },
@@ -15,10 +15,15 @@ const categories = [
 ];
 
 export default function HomePage() {
-  const [products, setProducts] = useState<Product[]>(DEFAULT_PRODUCTS);
+  const [products, setProducts] = useState<Product[]>([]);
+  const [loadingProducts, setLoadingProducts] = useState(true);
+  const [catalogError, setCatalogError] = useState("");
 
   useEffect(() => {
-    setProducts(getCatalogProducts());
+    fetchProducts()
+      .then(setProducts)
+      .catch((error: unknown) => setCatalogError(error instanceof Error ? error.message : "Could not load products."))
+      .finally(() => setLoadingProducts(false));
   }, []);
 
   const featured = products.filter((product) => product.featured && product.status === "Published").slice(0, 4);
@@ -64,6 +69,10 @@ export default function HomePage() {
               {featured.map((product) => (
                 <ProductCard key={product.id} product={product} />
               ))}
+              {!loadingProducts && !catalogError && featured.length === 0 && (
+                <p className="col-span-full rounded-2xl bg-white/70 p-5 text-[#63452f]">New featured pieces are on the way.</p>
+              )}
+              {catalogError && <p role="alert" className="col-span-full rounded-2xl bg-red-50 p-5 text-red-800">{catalogError}</p>}
             </div>
           </div>
         </section>
@@ -79,6 +88,9 @@ export default function HomePage() {
             {arrivals.map((product) => (
               <ProductCard key={product.id} product={product} />
             ))}
+            {!loadingProducts && !catalogError && arrivals.length === 0 && (
+              <p className="col-span-full rounded-2xl bg-[#f9f3ee] p-5 text-[#63452f]">No new arrivals are published yet.</p>
+            )}
           </div>
         </section>
 
@@ -94,6 +106,9 @@ export default function HomePage() {
               {trending.map((product) => (
                 <ProductCard key={product.id} product={product} />
               ))}
+              {!loadingProducts && !catalogError && trending.length === 0 && (
+                <p className="col-span-full rounded-2xl bg-white/70 p-5 text-[#63452f]">No bestsellers are published yet.</p>
+              )}
             </div>
           </div>
         </section>

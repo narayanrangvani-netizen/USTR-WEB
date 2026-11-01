@@ -12,7 +12,7 @@ export function CartSummary() {
       <div className="mt-6 space-y-4 text-sm text-[#63452f]">
         <div className="flex justify-between">
           <span>Items</span>
-          <span>{items.length}</span>
+          <span>{items.reduce((count, item) => count + item.quantity, 0)}</span>
         </div>
         <div className="flex justify-between">
           <span>Subtotal</span>

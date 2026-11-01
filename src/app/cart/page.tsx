@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { CartProvider, useCart } from "@/components/cart/CartProvider";
+import { useCart } from "@/components/cart/CartProvider";
 import { CartSummary } from "@/components/cart/CartSummary";
 import { Footer } from "@/components/storefront/Footer";
 import { Header } from "@/components/storefront/Header";
@@ -37,7 +37,8 @@ function CartPageContent() {
 
               <div className="flex items-center gap-3">
                 <button
-                  onClick={() => updateQuantity(item.id, item.quantity - 1)}
+                  onClick={() => item.quantity === 1 ? removeFromCart(item.id) : updateQuantity(item.id, item.quantity - 1)}
+                  aria-label={item.quantity === 1 ? `Remove ${item.name}` : `Decrease quantity of ${item.name}`}
                   className="h-9 w-9 rounded-full border border-stone-300 text-lg text-[#29221d]"
                 >
                   -
@@ -68,15 +69,13 @@ function CartPageContent() {
 
 export default function CartRoute() {
   return (
-    <CartProvider>
-      <div className="bg-[#fffdfc] text-[#29221d]">
-        <Header />
-        <main className="mx-auto max-w-7xl px-4 py-12 sm:px-6 lg:px-8">
-          <div className="mb-8 text-[11px] font-bold uppercase tracking-[0.28em] text-[#63452f]">Cart</div>
-          <CartPageContent />
-        </main>
-        <Footer />
-      </div>
-    </CartProvider>
+    <div className="bg-[#fffdfc] text-[#29221d]">
+      <Header />
+      <main className="mx-auto max-w-7xl px-4 py-12 sm:px-6 lg:px-8">
+        <div className="mb-8 text-[11px] font-bold uppercase tracking-[0.28em] text-[#63452f]">Cart</div>
+        <CartPageContent />
+      </main>
+      <Footer />
+    </div>
   );
 }

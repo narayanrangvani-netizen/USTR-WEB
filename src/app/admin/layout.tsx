@@ -2,6 +2,8 @@ import { Suspense } from "react";
 import { AdminShell } from "@/components/admin/AdminShell";
 import { requireAdmin } from "@/lib/admin-auth";
 
+export const instant = false;
+
 async function AdminGuard({ children }: { children: React.ReactNode }) {
   await requireAdmin();
   return <AdminShell>{children}</AdminShell>;

@@ -4,13 +4,18 @@ import { useEffect, useState } from "react";
 import { Footer } from "@/components/storefront/Footer";
 import { Header } from "@/components/storefront/Header";
 import { ProductCard } from "@/components/storefront/ProductCard";
-import { DEFAULT_PRODUCTS, getCatalogProducts, type Product } from "@/lib/products";
+import { fetchProducts, type Product } from "@/lib/products";
 
 export function CategoryPage({ gender, title }: { gender: "Men" | "Women"; title: string }) {
-  const [products, setProducts] = useState<Product[]>(DEFAULT_PRODUCTS);
+  const [products, setProducts] = useState<Product[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
 
   useEffect(() => {
-    setProducts(getCatalogProducts());
+    fetchProducts()
+      .then(setProducts)
+      .catch((reason: unknown) => setError(reason instanceof Error ? reason.message : "Could not load products."))
+      .finally(() => setLoading(false));
   }, []);
 
   const categoryProducts = products.filter(
@@ -31,7 +36,11 @@ export function CategoryPage({ gender, title }: { gender: "Men" | "Women"; title
             {title}
           </h1>
         </div>
-        {categoryProducts.length ? (
+        {loading ? (
+          <p className="rounded-[24px] bg-[#f9f3ee] p-6 text-[#63452f]">Loading collection…</p>
+        ) : error ? (
+          <p role="alert" className="rounded-[24px] bg-red-50 p-6 text-red-800">{error}</p>
+        ) : categoryProducts.length ? (
           <div className="grid gap-6 sm:grid-cols-2 xl:grid-cols-4">
             {categoryProducts.map((product) => (
               <ProductCard key={product.id} product={product} />
