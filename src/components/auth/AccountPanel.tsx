@@ -118,6 +118,7 @@ export function AccountPanel({ ownerOnly = false }: { ownerOnly?: boolean }) {
         {message && <p role="status" className="rounded-2xl border border-green-200 bg-green-50 px-3 py-2 text-sm text-green-900">{message}</p>}
         <button type="submit" disabled={submitting} className="w-full rounded-full bg-[#29221d] px-4 py-3 text-sm font-semibold uppercase tracking-[0.2em] text-white disabled:opacity-70">{submitting ? "Please wait…" : mode === "signup" ? "Create account" : "Sign in"}</button>
       </form>
+      {mode === "login" && <Link href={ownerOnly ? "/account/forgot-password?next=admin" : "/account/forgot-password"} className="mt-4 block text-center text-sm text-[#63452f] underline">Forgot your password?</Link>}
       {!ownerOnly && <button onClick={() => { setError(""); setMessage(""); setMode(mode === "login" ? "signup" : "login"); }} className="mt-5 w-full text-center text-sm text-[#63452f] underline">{mode === "login" ? "New here? Create an account" : "Already have an account? Sign in"}</button>}
       {!ownerOnly && <Link href="/men" className="mt-5 block text-center text-sm text-[#63452f]">Continue shopping</Link>}
     </div>
