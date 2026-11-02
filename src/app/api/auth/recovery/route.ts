@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { getAuthSiteOrigin } from "@/lib/auth-site-url";
 import { getSupabaseServerClient } from "@/lib/supabase/server";
 
 export async function POST(request: Request) {
@@ -20,7 +21,7 @@ export async function POST(request: Request) {
 
   try {
     const supabase = await getSupabaseServerClient();
-    const redirectUrl = new URL("/account/reset-password", request.url);
+    const redirectUrl = new URL("/account/reset-password", getAuthSiteOrigin(request.url));
     if (body.ownerLogin === true) redirectUrl.searchParams.set("next", "admin");
 
     const { error } = await supabase.auth.resetPasswordForEmail(email, {
