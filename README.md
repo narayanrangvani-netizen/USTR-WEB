@@ -11,7 +11,7 @@ USTR SUITS is a Next.js storefront for a clothing brand. It includes a Supabase-
 
 1. Create a Supabase project and open **SQL Editor** in its dashboard.
 2. Run the complete migration in [`supabase/migrations/20261101000000_storefront.sql`](supabase/migrations/20261101000000_storefront.sql). It is safe to run on a new project or the existing schema in this repository; it adds missing tables/columns and replaces the old permissive product/order policies. Do not run the removed legacy `schema.sql`.
-3. In **Authentication → Providers → Email**, enable email/password sign-in. For local testing you can disable email confirmations; for a live store configure Supabase email delivery and leave confirmation enabled.
+3. In **Authentication → Providers → Email**, enable email/password sign-in. For local testing you can disable email confirmations; for a live store leave confirmation enabled and configure Brevo as Supabase's custom SMTP provider using the steps below.
 4. Copy `.env.example` to `.env.local` and fill in the project URL, anon key, and service-role key from **Project Settings → API**. Keep the service-role key private and server-only. Never prefix it with `NEXT_PUBLIC_` or commit `.env.local`.
 5. Apply the additional showroom migration [`supabase/migrations/20261101000100_showroom_rack.sql`](supabase/migrations/20261101000100_showroom_rack.sql). It adds rack visibility/order and image view/colour metadata with defaults; it does not delete product, image, inventory, customer, or order data.
 6. Start the app and create your account at `/account`. If email confirmation is enabled, confirm it first. Only after the account exists, promote that exact email to store owner in the Supabase SQL Editor:
@@ -28,6 +28,23 @@ USTR SUITS is a Next.js storefront for a clothing brand. It includes a Supabase-
 7. Sign in with that Supabase Auth email and password at `/admin/login`. The protected dashboard is at `/admin`; there is no default admin password.
 
 The migration creates the public `product-images` storage bucket, a customer profile trigger, stock and order tables/policies, and server-only order RPCs. Product and image management APIs also verify the owner's authenticated Supabase profile before using the server-side service key.
+
+### Send Supabase Auth email through Brevo
+
+Brevo is the email delivery service; Supabase remains responsible for accounts, sign-in, confirmation, and the database. The app does not call Brevo directly and does not need a Brevo API key in its environment.
+
+1. In Brevo, verify the sender email address (and configure/authenticate your sending domain if you use one). Use a sender address you are authorized to send from.
+2. In Brevo, open **Transactional → Settings → SMTP & API → SMTP** and copy the SMTP login and generate/copy an **SMTP key**. Do not use the Brevo REST API key as the SMTP password.
+3. In Supabase, open **Authentication → SMTP Settings** (under the Auth email/SMTP settings) and enable custom SMTP. Enter:
+   - Host: `smtp-relay.brevo.com`
+   - Port: `587`
+   - Username: the Brevo SMTP login
+   - Password: the Brevo SMTP key
+   - Sender email and sender name: the verified sender details from Brevo
+4. Save the settings. In Supabase **Authentication → URL Configuration**, set **Site URL** to the public production origin, for example `https://your-store-domain.example` (no path). Add the production origin and `https://your-store-domain.example/**` to the allowed redirect URLs. For local testing, also allow `http://localhost:3000` and `http://localhost:3000/**`. Password recovery emails redirect to `/account/reset-password`; the route supports both URL hash tokens and PKCE `code` links. The `/**` entries allow those app paths.
+5. Signup confirmation returns to Supabase's configured Site URL; customers can then open `/account` to sign in. Password reset requests from `/account` and `/admin/login` use `/account/reset-password`; after a successful reset the user is signed out and can return to the respective sign-in page. Test one recovery after the current Supabase Auth rate-limit cooldown has cleared.
+
+Enter SMTP credentials only in the Supabase dashboard. Do not add them to frontend code, `NEXT_PUBLIC_*` variables, Vercel app environment variables, or Git. If the sender or SMTP settings are not accepted, check Brevo's verified sender and SMTP credentials in their dashboards; never share the credentials. Brevo SMTP can improve email delivery, but it does not replace Supabase or remove Supabase Auth rate limits.
 
 ### Vercel environment variables
 
