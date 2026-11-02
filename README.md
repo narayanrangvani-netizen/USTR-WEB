@@ -50,11 +50,14 @@ Enter SMTP credentials only in the Supabase dashboard. Do not add them to fronte
 
 In Vercel, add the following under **Project → Settings → Environment Variables** for each environment you deploy. Redeploy after changing variables:
 
+Also set `SITE_URL` to your stable production origin, for example `https://your-store-domain.example` (no path). Do not set it to a per-deployment URL such as `https://ustr-<deployment-id>-<team>.vercel.app`; preview and production deployments must send recovery links to the stable production domain. The app uses `SITE_URL` first, then `NEXT_PUBLIC_SITE_URL`, then Vercel's `VERCEL_PROJECT_PRODUCTION_URL`. In local development only, it falls back to the request origin. Add `https://your-store-domain.example/account/reset-password` (or `https://your-store-domain.example/**`) to Supabase Auth's allowed redirect URLs. This prevents a preview URL from being rejected and silently falling back to Supabase's Site URL.
+
 | Variable | Purpose | Secret? |
 |---|---|---|
 | `NEXT_PUBLIC_SUPABASE_URL` | Supabase project URL | No |
 | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Supabase anon/publishable key | No |
 | `SUPABASE_SERVICE_ROLE_KEY` | Server-side owner operations and order creation | **Yes — server only** |
+| `SITE_URL` | Stable public origin used in Supabase Auth email redirects | No |
 
 The server also accepts `SUPABASE_URL` as an alias for `NEXT_PUBLIC_SUPABASE_URL`, and `SUPABASE_APIKEY` as an alias for `NEXT_PUBLIC_SUPABASE_ANON_KEY`. If using those aliases, `SUPABASE_APIKEY` must be the anon/publishable key, not the service-role key. `SUPABASE_SERVICE_ROLE_KEY` is still separately required and must never be exposed to browser code or committed. The Supabase database password is not an application environment variable.
 
