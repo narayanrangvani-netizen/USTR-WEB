@@ -9,7 +9,7 @@ export async function GET() {
 
   try {
     const { data, error } = await access.service.from("orders")
-      .select("id, user_id, total_amount, shipping_amount, payment_method, payment_status, order_status, delivery_address, created_at, order_items(quantity, price, products(name))")
+      .select("id, user_id, total_amount, shipping_amount, payment_method, payment_status, order_status, delivery_address, created_at, order_items(quantity, price, products(name), product_variants(color, size))")
       .order("created_at", { ascending: false });
     if (error) throw new Error(`Could not load orders: ${error.message}`);
     return NextResponse.json({ orders: data });

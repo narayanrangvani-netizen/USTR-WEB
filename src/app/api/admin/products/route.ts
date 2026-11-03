@@ -12,8 +12,10 @@ export async function GET() {
   try {
     return NextResponse.json({ products: await listProducts({ includeUnpublished: true }) });
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Could not load products.";
-    return NextResponse.json({ error: message }, { status: 503 });
+    console.error("[admin.products] Product list failed", {
+      kind: error instanceof Error ? error.name : "unknown",
+    });
+    return NextResponse.json({ error: "Could not load products. Try again." }, { status: 503 });
   }
 }
 
@@ -21,8 +23,18 @@ export async function POST(request: Request) {
   const access = await requireStoreOwner();
   if ("response" in access) return access.response;
 
+  let parsedBody: unknown;
   try {
-    const body = await request.json();
+    parsedBody = await request.json();
+  } catch {
+    return NextResponse.json({ error: "Send valid product details." }, { status: 400 });
+  }
+  if (!parsedBody || typeof parsedBody !== "object" || Array.isArray(parsedBody)) {
+    return NextResponse.json({ error: "Send valid product details." }, { status: 400 });
+  }
+
+  try {
+    const body = parsedBody as Record<string, unknown>;
     const name = typeof body.name === "string" ? body.name.trim() : "";
     const gender = body.gender;
     const productType = typeof body.category === "string" ? body.category.trim() : "";
@@ -36,10 +48,14 @@ export async function POST(request: Request) {
     const rackOrder = body.rackOrder === undefined ? 0 : Number(body.rackOrder);
     const hasProductId = body.id !== undefined;
     const productId = typeof body.id === "string" && /^[0-9a-f-]{36}$/i.test(body.id) ? body.id : undefined;
-    const stock = body.stock === "" && productId ? undefined : Number(body.stock);
+    const stock = body.stock === "" || body.stock === undefined ? undefined : Number(body.stock);
+    const variantStock = body.variantStock && typeof body.variantStock === "object" && !Array.isArray(body.variantStock)
+      ? body.variantStock as Record<string, unknown>
+      : undefined;
 
     if (
       name.length < 2 ||
+      typeof gender !== "string" ||
       !["Men", "Women", "Unisex"].includes(gender) ||
       productType.length < 2 ||
       sku.length < 3 ||
@@ -48,36 +64,74 @@ export async function POST(request: Request) {
       !Number.isFinite(mrp) ||
       mrp < price ||
       (hasProductId && !productId) ||
+      typeof status !== "string" ||
       !["Draft", "Published", "Archived"].includes(status) ||
       typeof showOnRack !== "boolean" ||
       !Number.isInteger(rackOrder) ||
       rackOrder < 0 ||
       rackOrder > 10000 ||
       (stock !== undefined && (!Number.isInteger(stock) || stock < 0 || stock > 10000)) ||
-      (stock === undefined && !productId) ||
+      (stock === undefined && !variantStock && !productId) ||
       colors.length < 1 ||
       colors.length > 12 ||
       sizes.length < 1 ||
       sizes.length > 12 ||
       new Set(colors).size !== colors.length ||
-      new Set(sizes).size !== sizes.length
+      new Set(sizes).size !== sizes.length ||
+      (body.variantStock !== undefined && !variantStock)
     ) {
       return NextResponse.json({ error: "Check the product name, SKU, price/MRP, collection, colours, and sizes." }, { status: 400 });
     }
-
-    if (status === "Published" && !productId) {
-      return NextResponse.json({ error: "Save this item as a draft, upload at least one product photo, then publish it." }, { status: 400 });
+    if (variantStock && Object.entries(variantStock).some(([key, value]) => {
+      let pair: unknown;
+      try {
+        pair = JSON.parse(key);
+      } catch {
+        return true;
+      }
+      return !Array.isArray(pair) ||
+        pair.length !== 2 ||
+        typeof pair[0] !== "string" ||
+        typeof pair[1] !== "string" ||
+        !colors.includes(pair[0]) ||
+        !sizes.includes(pair[1]) ||
+        !Number.isInteger(Number(value)) ||
+        Number(value) < 0 ||
+        Number(value) > 10000;
+    })) {
+      return NextResponse.json({ error: "Enter a whole-number stock value from 0 to 10000 for each selected colour and size." }, { status: 400 });
     }
-    if (status === "Published" && productId) {
-      const { count, error: imageError } = await access.service
-        .from("product_images").select("id", { count: "exact", head: true }).eq("product_id", productId);
-      if (imageError) throw new Error(`Could not check product images: ${imageError.message}`);
-      if (!count) return NextResponse.json({ error: "Upload at least one product photo before publishing this item." }, { status: 400 });
+    if (!variantStock && stock !== undefined && (!Number.isInteger(stock) || stock < 0 || stock > 10000)) {
+      return NextResponse.json({ error: "Starting stock must be a whole number between 0 and 10000." }, { status: 400 });
+    }
+    if (!variantStock && stock === undefined && !productId) {
+      return NextResponse.json({ error: "Enter a starting stock quantity for each product variant." }, { status: 400 });
+    }
+    if (variantStock && colors.some((color: string) => sizes.some((size: string) => {
+      const key = JSON.stringify([color, size]);
+      return !Object.prototype.hasOwnProperty.call(variantStock, key);
+    }))) {
+      return NextResponse.json({ error: "Enter a stock value for every selected colour and size." }, { status: 400 });
+    }
+
+    if (status === "Published") {
+      return NextResponse.json({ error: "Save the product first, then use Publish product to verify its images and stock." }, { status: 400 });
+    }
+    const { data: existingCategory, error: categoryError } = await access.service.from("categories")
+      .select("id").eq("name", productType).maybeSingle();
+    if (categoryError) throw new Error(`Could not check product category: ${categoryError.message}`);
+    let categoryId = existingCategory?.id;
+    if (!categoryId) {
+      const { data, error } = await access.service.from("categories")
+        .insert({ name: productType, slug: `${slugify(productType) || "category"}-${crypto.randomUUID().slice(0, 8)}` })
+        .select("id").single();
+      if (error) throw new Error(`Could not save product category: ${error.message}`);
+      categoryId = data.id;
     }
     const product = {
       name,
-      slug: `${slugify(name)}${productId ? "" : `-${crypto.randomUUID().slice(0, 8)}`}`,
       gender,
+      category_id: categoryId,
       product_type: productType,
       description: typeof body.description === "string" ? body.description.trim() : "",
       selling_price: price,
@@ -98,13 +152,20 @@ export async function POST(request: Request) {
     };
 
     let savedProductId = productId;
+    let savedProductSlug = "";
     if (productId) {
-      const { error } = await access.service.from("products").update(product).eq("id", productId);
+      const { data, error } = await access.service.from("products")
+        .update(product).eq("id", productId).select("id,slug").single();
       if (error) throw new Error(`Could not update product: ${error.message}`);
+      savedProductSlug = data.slug;
     } else {
-      const { data, error } = await access.service.from("products").insert(product).select("id").single();
+      const { data, error } = await access.service.from("products").insert({
+        ...product,
+        slug: `${slugify(name)}-${crypto.randomUUID().slice(0, 8)}`,
+      }).select("id,slug").single();
       if (error) throw new Error(`Could not create product: ${error.message}`);
       savedProductId = data.id;
+      savedProductSlug = data.slug;
     }
 
     if (!savedProductId) throw new Error("The product was saved without an ID.");
@@ -119,35 +180,41 @@ export async function POST(request: Request) {
     const { data: savedVariants, error: variantError } = await access.service
       .from("product_variants")
       .upsert(variants, { onConflict: "product_id,color,size" })
-      .select("id");
+      .select("id,color,size");
     if (variantError) throw new Error(`Product saved, but sizes and colours could not be saved: ${variantError.message}`);
 
-    if (stock !== undefined) {
-      const inventoryRows = savedVariants.map((variant) => ({
+    const inventoryRows = savedVariants.flatMap((variant) => {
+      const variantKey = JSON.stringify([variant.color, variant.size]);
+      const variantValue = variantStock?.[variantKey];
+      const quantity = variantValue === undefined ? stock : Number(variantValue);
+      return quantity === undefined ? [] : [{
         variant_id: variant.id,
-        stock,
+        stock: quantity,
         updated_at: new Date().toISOString(),
-      }));
+      }];
+    });
+    if (inventoryRows.length) {
       const { error: inventoryError } = await access.service
         .from("inventory")
         .upsert(inventoryRows, { onConflict: "variant_id" });
       if (inventoryError) throw new Error(`Product saved, but stock could not be saved: ${inventoryError.message}`);
-    } else {
-      const { data: existingInventory, error: existingError } = await access.service
-        .from("inventory").select("variant_id").in("variant_id", savedVariants.map((variant) => variant.id));
-      if (existingError) throw new Error(`Product saved, but stock could not be checked: ${existingError.message}`);
-      const existingIds = new Set(existingInventory.map((row) => row.variant_id));
-      const missing = savedVariants.filter((variant) => !existingIds.has(variant.id)).map((variant) => ({ variant_id: variant.id, stock: 0 }));
-      if (missing.length) {
-        const { error: missingError } = await access.service.from("inventory").insert(missing);
-        if (missingError) throw new Error(`Product saved, but new variant stock could not be initialized: ${missingError.message}`);
-      }
+    }
+    const { data: existingInventory, error: existingError } = await access.service
+      .from("inventory").select("variant_id").in("variant_id", savedVariants.map((variant) => variant.id));
+    if (existingError) throw new Error(`Product saved, but stock could not be checked: ${existingError.message}`);
+    const existingIds = new Set(existingInventory.map((row) => row.variant_id));
+    const missing = savedVariants.filter((variant) => !existingIds.has(variant.id)).map((variant) => ({ variant_id: variant.id, stock: 0 }));
+    if (missing.length) {
+      const { error: missingError } = await access.service.from("inventory").insert(missing);
+      if (missingError) throw new Error(`Product saved, but new variant stock could not be initialized: ${missingError.message}`);
     }
 
-    return NextResponse.json({ id: savedProductId }, { status: productId ? 200 : 201 });
+    return NextResponse.json({ id: savedProductId, slug: savedProductSlug }, { status: productId ? 200 : 201 });
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Could not save product.";
-    return NextResponse.json({ error: message }, { status: 400 });
+    console.error("[admin.products] Product save failed", {
+      kind: error instanceof Error ? error.name : "unknown",
+    });
+    return NextResponse.json({ error: "Could not save the product. Check your connection and try again." }, { status: 503 });
   }
 }
 
@@ -187,15 +254,38 @@ export async function PATCH(request: Request) {
     if (update.status === "Published") {
       const { count, error: imageError } = await access.service
         .from("product_images").select("id", { count: "exact", head: true }).eq("product_id", body.id);
-      if (imageError) return NextResponse.json({ error: imageError.message }, { status: 400 });
+      if (imageError) {
+        console.error("[admin.products] Image check failed", { code: imageError.code ?? "unknown" });
+        return NextResponse.json({ error: "Could not verify product images. Try again." }, { status: 503 });
+      }
       if (!count) return NextResponse.json({ error: "Upload at least one product photo before publishing this item." }, { status: 400 });
+      const { data: variants, error: variantError } = await access.service
+        .from("product_variants").select("id").eq("product_id", body.id);
+      if (variantError) {
+        console.error("[admin.products] Variant check failed", { code: variantError.code ?? "unknown" });
+        return NextResponse.json({ error: "Could not verify product availability. Try again." }, { status: 503 });
+      }
+      if (!variants.length) return NextResponse.json({ error: "Add at least one colour and size before publishing." }, { status: 400 });
+      const { data: inventory, error: inventoryError } = await access.service
+        .from("inventory").select("stock").in("variant_id", variants.map((variant) => variant.id)).gt("stock", 0);
+      if (inventoryError) {
+        console.error("[admin.products] Inventory check failed", { code: inventoryError.code ?? "unknown" });
+        return NextResponse.json({ error: "Could not verify product availability. Try again." }, { status: 503 });
+      }
+      if (!inventory.length) return NextResponse.json({ error: "Set stock for at least one variant before publishing." }, { status: 400 });
     }
     const { error } = await access.service.from("products")
       .update(update)
       .eq("id", body.id);
-    if (error) return NextResponse.json({ error: error.message }, { status: 400 });
+    if (error) {
+      console.error("[admin.products] Product status update failed", { code: error.code ?? "unknown" });
+      return NextResponse.json({ error: "Could not update the product. Try again." }, { status: 503 });
+    }
     return NextResponse.json({ ok: true });
-  } catch {
-    return NextResponse.json({ error: "Could not update product status." }, { status: 400 });
+  } catch (error) {
+    console.error("[admin.products] Product status update failed", {
+      kind: error instanceof Error ? error.name : "unknown",
+    });
+    return NextResponse.json({ error: "Could not update the product. Try again." }, { status: 503 });
   }
 }

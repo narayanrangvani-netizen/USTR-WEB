@@ -38,7 +38,21 @@ export async function getCurrentStoreUser() {
   const supabase = await getSupabaseServerClient();
   const { data: { user }, error } = await supabase.auth.getUser();
 
-  if (error || !user) return null;
+  if (error) {
+    const code = "code" in error ? error.code : undefined;
+    if (
+      error.name === "AuthSessionMissingError" ||
+      code === "session_not_found" ||
+      code === "bad_jwt" ||
+      code === "invalid_token"
+    ) return null;
+    console.error("[auth.session] Session verification failed", {
+      code: code ?? "unknown",
+      status: error.status ?? null,
+    });
+    throw new Error("Could not verify the sign-in session.");
+  }
+  if (!user) return null;
 
   const service = getSupabaseServiceClient();
   const { data: profile, error: profileError } = await service
@@ -47,7 +61,10 @@ export async function getCurrentStoreUser() {
     .eq("id", user.id)
     .maybeSingle();
 
-  if (profileError) throw new Error(`Could not read account profile: ${profileError.message}`);
+  if (profileError) {
+    console.error("[auth.session] Owner profile lookup failed", { code: profileError.code ?? "unknown" });
+    throw new Error("Could not read the store account profile.");
+  }
   return profile ? { user, profile } : null;
 }
 
@@ -60,7 +77,9 @@ export async function requireStoreOwner() {
     }
     return { current, service: getSupabaseServiceClient() };
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Store database configuration is unavailable.";
-    return { response: Response.json({ error: message }, { status: 503 }) };
+    console.error("[auth.owner] Store access check failed", {
+      kind: error instanceof Error ? error.name : "unknown",
+    });
+    return { response: Response.json({ error: "Store access is temporarily unavailable." }, { status: 503 }) };
   }
 }
