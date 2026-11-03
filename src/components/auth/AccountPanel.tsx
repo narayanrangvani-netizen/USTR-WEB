@@ -10,13 +10,21 @@ export function AccountPanel({ ownerOnly = false }: { ownerOnly?: boolean }) {
   const router = useRouter();
   const [user, setUser] = useState<StoreUser | null>(null);
   const [mode, setMode] = useState<"login" | "signup">("login");
+  const [step, setStep] = useState<"request" | "verify">("request");
   const [fullName, setFullName] = useState("");
   const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
+  const [token, setToken] = useState("");
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
+  const [resendCooldown, setResendCooldown] = useState(0);
+
+  useEffect(() => {
+    if (resendCooldown <= 0) return;
+    const timeout = window.setTimeout(() => setResendCooldown((current) => Math.max(0, current - 1)), 1000);
+    return () => window.clearTimeout(timeout);
+  }, [resendCooldown]);
 
   async function loadUser(): Promise<StoreUser | null> {
     const response = await fetch("/api/auth/me", { cache: "no-store" });
@@ -38,37 +46,84 @@ export function AccountPanel({ ownerOnly = false }: { ownerOnly?: boolean }) {
       .finally(() => setLoading(false));
   }, []);
 
-  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
+  async function requestCode(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setSubmitting(true);
     setError("");
     setMessage("");
     try {
-      const response = await fetch(`/api/auth/${mode === "signup" ? "signup" : "login"}`, {
+      const response = await fetch("/api/auth/otp/request", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ fullName, email, password }),
+        body: JSON.stringify({ fullName, email, mode, ownerLogin: ownerOnly }),
       });
       const body = await response.json();
-      if (!response.ok) throw new Error(body.error ?? "Account request failed.");
-      if (body.needsEmailConfirmation) {
-        setMessage(body.message);
-        setMode("login");
-        return;
+      if (!response.ok) {
+        if (response.status === 429) setResendCooldown(60);
+        throw new Error(body.error ?? "Could not send a sign-in code.");
       }
-      if (mode === "signup") setMessage(body.message);
+      setStep("verify");
+      setToken("");
+      setResendCooldown(60);
+      setMessage(body.message ?? "If this email can sign in here, a one-time code will be sent. Check your inbox and spam folder.");
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Could not send a sign-in code.");
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  async function verifyCode(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setSubmitting(true);
+    setError("");
+    setMessage("");
+    try {
+      const response = await fetch("/api/auth/otp/verify", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email, token, ownerLogin: ownerOnly }),
+      });
+      const body = await response.json();
+      if (!response.ok) throw new Error(body.error ?? "Could not verify the code.");
       const currentUser = await loadUser();
       if (!currentUser) {
-        throw new Error("Sign-in succeeded, but the session could not be verified. Try again.");
+        throw new Error("The code was accepted, but the signed-in account could not be verified. Try again.");
       }
       if (ownerOnly && currentUser.role !== "owner") {
         setUser(null);
-        throw new Error("This account is not an owner account. Ask the store owner to grant owner access in Supabase.");
+        throw new Error("This account does not have owner access. The store administrator must authorize its owner role in Supabase.");
       }
       router.push(ownerOnly ? "/admin" : "/");
       router.refresh();
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "Account request failed.");
+      setError(reason instanceof Error ? reason.message : "Could not verify the code.");
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  async function resendCode() {
+    if (resendCooldown > 0 || submitting) return;
+    setSubmitting(true);
+    setError("");
+    setMessage("");
+    try {
+      const response = await fetch("/api/auth/otp/request", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ fullName, email, mode, ownerLogin: ownerOnly }),
+      });
+      const body = await response.json();
+      if (!response.ok) {
+        if (response.status === 429) setResendCooldown(60);
+        throw new Error(body.error ?? "Could not resend a sign-in code.");
+      }
+      setToken("");
+      setResendCooldown(60);
+      setMessage(body.message ?? "If this email can sign in here, a one-time code will be sent. Check your inbox and spam folder.");
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Could not resend a sign-in code.");
     } finally {
       setSubmitting(false);
     }
@@ -111,18 +166,27 @@ export function AccountPanel({ ownerOnly = false }: { ownerOnly?: boolean }) {
       <div className="text-center">
         <div className="text-xl font-black uppercase tracking-[0.24em] text-[#29221d]">USTR SUITS</div>
         <h1 className="mt-4 text-3xl font-semibold uppercase tracking-tight text-[#29221d]">{ownerOnly ? "Owner access" : mode === "signup" ? "Create account" : "Your account"}</h1>
-        <p className="mt-2 text-sm text-[#63452f]">{ownerOnly ? "Sign in with the store owner account." : "Sign in to place orders and keep your details ready."}</p>
+        <p className="mt-2 text-sm text-[#63452f]">{step === "verify" ? `Enter the one-time code sent to ${email}.` : ownerOnly ? "Enter the email address for your authorized owner account." : "Sign in or create an account using a one-time email code."}</p>
       </div>
-      <form onSubmit={handleSubmit} className="mt-8 space-y-5">
-        {mode === "signup" && !ownerOnly && <label className="block"><span className="mb-2 block text-sm font-medium text-[#63452f]">Full name</span><input value={fullName} onChange={(event) => setFullName(event.target.value)} autoComplete="name" className="w-full rounded-2xl border border-stone-300 bg-[#f9f3ee] px-4 py-3" minLength={2} required /></label>}
-        <label className="block"><span className="mb-2 block text-sm font-medium text-[#63452f]">Email</span><input type="email" value={email} onChange={(event) => setEmail(event.target.value)} autoComplete="email" className="w-full rounded-2xl border border-stone-300 bg-[#f9f3ee] px-4 py-3" required /></label>
-        <label className="block"><span className="mb-2 block text-sm font-medium text-[#63452f]">Password</span><input type="password" value={password} onChange={(event) => setPassword(event.target.value)} autoComplete={mode === "signup" ? "new-password" : "current-password"} className="w-full rounded-2xl border border-stone-300 bg-[#f9f3ee] px-4 py-3" minLength={mode === "signup" ? 8 : undefined} required /></label>
+      {step === "request" ? (
+      <form onSubmit={requestCode} className="mt-8 space-y-5">
+        {mode === "signup" && !ownerOnly && <label className="block"><span className="mb-2 block text-sm font-medium text-[#63452f]">Full name</span><input value={fullName} onChange={(event) => setFullName(event.target.value)} autoComplete="name" className="w-full rounded-2xl border border-stone-300 bg-[#f9f3ee] px-4 py-3" minLength={2} maxLength={120} required /></label>}
+        <label className="block"><span className="mb-2 block text-sm font-medium text-[#63452f]">Email</span><input type="email" value={email} onChange={(event) => setEmail(event.target.value)} autoComplete="email" className="w-full rounded-2xl border border-stone-300 bg-[#f9f3ee] px-4 py-3" maxLength={320} required /></label>
         {error && <p role="alert" className="rounded-2xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">{error}</p>}
         {message && <p role="status" className="rounded-2xl border border-green-200 bg-green-50 px-3 py-2 text-sm text-green-900">{message}</p>}
-        <button type="submit" disabled={submitting} className="w-full rounded-full bg-[#29221d] px-4 py-3 text-sm font-semibold uppercase tracking-[0.2em] text-white disabled:opacity-70">{submitting ? "Please wait…" : mode === "signup" ? "Create account" : "Sign in"}</button>
+        <button type="submit" disabled={submitting} className="w-full rounded-full bg-[#29221d] px-4 py-3 text-sm font-semibold uppercase tracking-[0.2em] text-white disabled:opacity-70">{submitting ? "Sending code…" : mode === "signup" && !ownerOnly ? "Create account with email code" : "Send sign-in code"}</button>
       </form>
-      {mode === "login" && <Link href={ownerOnly ? "/account/forgot-password?next=admin" : "/account/forgot-password"} className="mt-4 block text-center text-sm text-[#63452f] underline">Forgot your password?</Link>}
-      {!ownerOnly && <button onClick={() => { setError(""); setMessage(""); setMode(mode === "login" ? "signup" : "login"); }} className="mt-5 w-full text-center text-sm text-[#63452f] underline">{mode === "login" ? "New here? Create an account" : "Already have an account? Sign in"}</button>}
+      ) : (
+      <form onSubmit={verifyCode} className="mt-8 space-y-5">
+        <label className="block"><span className="mb-2 block text-sm font-medium text-[#63452f]">6-digit email code</span><input type="text" inputMode="numeric" autoComplete="one-time-code" pattern="[0-9]{6}" maxLength={6} value={token} onChange={(event) => setToken(event.target.value.replace(/\D/g, "").slice(0, 6))} className="w-full rounded-2xl border border-stone-300 bg-[#f9f3ee] px-4 py-3 text-center text-2xl tracking-[0.5em]" required /></label>
+        {error && <p role="alert" className="rounded-2xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">{error}</p>}
+        {message && <p role="status" className="rounded-2xl border border-green-200 bg-green-50 px-3 py-2 text-sm text-green-900">{message}</p>}
+        <button type="submit" disabled={submitting || token.length !== 6} className="w-full rounded-full bg-[#29221d] px-4 py-3 text-sm font-semibold uppercase tracking-[0.2em] text-white disabled:opacity-70">{submitting ? "Verifying…" : "Verify code"}</button>
+        <button type="button" onClick={() => void resendCode()} disabled={submitting || resendCooldown > 0} className="w-full text-center text-sm text-[#63452f] underline disabled:opacity-60">{resendCooldown > 0 ? `Resend code in ${resendCooldown}s` : "Resend code"}</button>
+        <button type="button" onClick={() => { setStep("request"); setToken(""); setError(""); setMessage(""); }} className="w-full text-center text-sm text-[#63452f] underline">Change email address</button>
+      </form>
+      )}
+      {!ownerOnly && step === "request" && <button onClick={() => { setError(""); setMessage(""); setMode(mode === "login" ? "signup" : "login"); }} className="mt-5 w-full text-center text-sm text-[#63452f] underline">{mode === "login" ? "New here? Create an account" : "Already have an account? Sign in"}</button>}
       {!ownerOnly && <Link href="/men" className="mt-5 block text-center text-sm text-[#63452f]">Continue shopping</Link>}
     </div>
   );

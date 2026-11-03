@@ -1,6 +1,8 @@
 # USTR SUITS
 
-USTR SUITS is a Next.js storefront for a clothing brand. It includes a Supabase-backed product catalog and owner dashboard, customer email/password accounts, a browser-persistent cart, Indian delivery addresses, stock-aware cash-on-delivery orders, and product photo uploads.
+USTR SUITS is a Next.js storefront for a clothing brand. It includes a Supabase-backed product catalog and owner dashboard, customer and owner email-code sign-in, a browser-persistent cart, Indian delivery addresses, stock-aware cash-on-delivery orders, and product photo uploads.
+
+For the step-by-step store-owner workflow, see the [Owner's Store Handbook](docs/OWNER-GUIDE.md).
 
 ## Requirements
 
@@ -11,10 +13,10 @@ USTR SUITS is a Next.js storefront for a clothing brand. It includes a Supabase-
 
 1. Create a Supabase project and open **SQL Editor** in its dashboard.
 2. Run the complete migration in [`supabase/migrations/20261101000000_storefront.sql`](supabase/migrations/20261101000000_storefront.sql). It is safe to run on a new project or the existing schema in this repository; it adds missing tables/columns and replaces the old permissive product/order policies. Do not run the removed legacy `schema.sql`.
-3. In **Authentication → Providers → Email**, enable email/password sign-in. For local testing you can disable email confirmations; for a live store leave confirmation enabled and configure Brevo as Supabase's custom SMTP provider using the steps below.
+3. In **Authentication → Providers → Email**, enable the Email provider and allow signups if customers should create accounts. For typed one-time codes, edit the Supabase Auth **Magic Link** email template so the message contains the code placeholder `{{ .Token }}` (not just `{{ .ConfirmationURL }}`), and set the OTP length to 6 digits. For example, the template body can display `<p>Your USTR SUITS sign-in code is {{ .Token }}</p>`. Configure Brevo as Supabase's custom SMTP provider using the steps below. Email delivery must work before customers or the owner can sign in.
 4. Copy `.env.example` to `.env.local` and fill in the project URL, anon key, and service-role key from **Project Settings → API**. Keep the service-role key private and server-only. Never prefix it with `NEXT_PUBLIC_` or commit `.env.local`.
 5. Apply the additional showroom migration [`supabase/migrations/20261101000100_showroom_rack.sql`](supabase/migrations/20261101000100_showroom_rack.sql). It adds rack visibility/order and image view/colour metadata with defaults; it does not delete product, image, inventory, customer, or order data.
-6. Start the app and create your account at `/account`. If email confirmation is enabled, confirm it first. Only after the account exists, promote that exact email to store owner in the Supabase SQL Editor:
+6. Start the app and create your customer account at `/account` using the emailed 6-digit code. To create the owner's identity, first request a customer account using the intended owner email and verify its code. Only after the account exists, promote that exact email to store owner in the Supabase SQL Editor:
 
    ```sql
    update public.store_profiles
@@ -23,11 +25,11 @@ USTR SUITS is a Next.js storefront for a clothing brand. It includes a Supabase-
    returning id, email, role;
    ```
 
-   Replace the example with the email used to register. The result should show exactly one row with `role = owner`. If it returns no rows, the account/profile does not exist yet or the email does not match; finish signup and email confirmation, then rerun the query. If it returns more than one row, stop and check the matching profiles before proceeding. New accounts are customers by default; there is no shared/default admin password.
+   Replace the example with the verified email used to register. The result should show exactly one row with `role = owner`. If it returns no rows, the account/profile does not exist yet or the email does not match; finish the OTP account creation and rerun the query. If it returns more than one row, stop and check the matching profiles before proceeding. New accounts are customers by default; OTP does not grant owner access.
 
-7. Sign in with that Supabase Auth email and password at `/admin/login`. The protected dashboard is at `/admin`; there is no default admin password.
+7. Sign in with that email's one-time code at `/admin/login`. The protected dashboard is at `/admin`. The owner login only accepts existing accounts with a server-verified `store_profiles.role = 'owner'`.
 
-If owner sign-in returns HTTP 401 with “Email or password is incorrect,” the server has received a Supabase Auth credential rejection (`invalid_credentials` or `user_not_found`); the response intentionally does not disclose which email state applies. The repository and deployment environment do not expose the active Auth user record, so an administrator must verify it in the same Supabase project configured for the production deployment. In Supabase SQL Editor, check the account and its separate application role:
+The login screen now uses typed email OTP, not a password. If a password field or `/api/auth/login` 401 appears, that may be an older deployment; confirm which build is deployed. If the code request shows success but no email arrives, the message is deliberately generic and does not prove that the account exists, SMTP accepted a message, or the email was delivered. Check Supabase Auth logs and Brevo transactional email logs for the request timestamp. The repository cannot inspect the owner's account, Auth logs, or delivery logs. In the same Supabase project configured for production, an administrator can check the account and its separate application role:
 
 ```sql
 select u.id, u.email, u.email_confirmed_at, u.banned_until, p.role
@@ -36,7 +38,7 @@ left join public.store_profiles as p on p.id = u.id
 where lower(u.email) = lower('owner@example.com');
 ```
 
-Confirm the query returns one row, the account is confirmed and not banned, and `role` is `owner`. A missing row/profile, unconfirmed or banned user, incorrect password, or a Vercel environment pointed at another Supabase project can prevent owner sign-in; a missing/misconfigured server key instead produces a service/configuration error, not this credentials 401. Compare the configured project URL/ref and anon-key role in Vercel with the intended Supabase project without copying keys into logs or chat. Do not promote an account until its identity has been confirmed.
+Confirm the query returns one row and `role` is `owner`; email confirmation status can also affect account access. Compare the configured project URL/ref and anon-key role in Vercel with the intended Supabase project without copying keys into logs or chat. Do not promote an account until its identity has been confirmed. Missing or misconfigured SMTP can prevent code delivery even when the API returns its generic success response.
 
 The migration creates the public `product-images` storage bucket, a customer profile trigger, stock and order tables/policies, and server-only order RPCs. Product and image management APIs also verify the owner's authenticated Supabase profile before using the server-side service key.
 
@@ -52,8 +54,8 @@ Brevo is the email delivery service; Supabase remains responsible for accounts, 
    - Username: the Brevo SMTP login
    - Password: the Brevo SMTP key
    - Sender email and sender name: the verified sender details from Brevo
-4. Save the settings. In Supabase **Authentication → URL Configuration**, set **Site URL** to the public production origin, for example `https://your-store-domain.example` (no path). Add the production origin and `https://your-store-domain.example/**` to the allowed redirect URLs. For local testing, also allow `http://localhost:3000` and `http://localhost:3000/**`. Password recovery emails redirect to `/account/reset-password`; the route supports both URL hash tokens and PKCE `code` links. The `/**` entries allow those app paths.
-5. Signup confirmation returns to Supabase's configured Site URL; customers can then open `/account` to sign in. Password reset requests from `/account` and `/admin/login` use `/account/reset-password`; after a successful reset the user is signed out and can return to the respective sign-in page. Test one recovery after the current Supabase Auth rate-limit cooldown has cleared.
+4. Save the settings. In Supabase **Authentication → URL Configuration**, set **Site URL** to the public production origin, for example `https://your-store-domain.example` (no path). Add the production origin and `https://your-store-domain.example/**` to the allowed redirect URLs. For local testing, also allow `http://localhost:3000` and `http://localhost:3000/**`. Existing recovery emails use `/account/reset-password`; the route supports URL hash tokens and PKCE `code` links.
+5. To sign in, request a code from `/account` or `/admin/login`, then enter the 6-digit code in the same screen. The Supabase Auth OTP interval defaults to one request per minute; the UI enforces a 60-second resend cooldown. Email OTP verification uses `type: "email"`.
 
 Enter SMTP credentials only in the Supabase dashboard. Do not add them to frontend code, `NEXT_PUBLIC_*` variables, Vercel app environment variables, or Git. If the sender or SMTP settings are not accepted, check Brevo's verified sender and SMTP credentials in their dashboards; never share the credentials. Brevo SMTP can improve email delivery, but it does not replace Supabase or remove Supabase Auth rate limits.
 
@@ -61,7 +63,7 @@ Enter SMTP credentials only in the Supabase dashboard. Do not add them to fronte
 
 In Vercel, add the following under **Project → Settings → Environment Variables** for each environment you deploy. Redeploy after changing variables:
 
-Also set `SITE_URL` to your stable production origin `https://ustr-web.vercel.app` (no path). Do not set it to a per-deployment URL such as `https://ustr-<deployment-id>-<team>.vercel.app`; preview and production deployments must send recovery links to the stable production domain. The app uses `SITE_URL` first, then `NEXT_PUBLIC_SITE_URL`, then Vercel's `VERCEL_PROJECT_PRODUCTION_URL`. In local development only, it falls back to the request origin. The app redirects `/account/forgot-password` to this canonical origin before issuing the reset request, so Supabase's PKCE verifier cookie and the emailed callback use the same host. In Supabase Auth **URL Configuration**, set the Site URL to `https://ustr-web.vercel.app` and add `https://ustr-web.vercel.app/account/reset-password` (or `https://ustr-web.vercel.app/**`) to the allowed redirect URLs. This prevents a preview URL from being rejected and silently falling back to Supabase's Site URL.
+Also set `SITE_URL` to your stable production origin `https://ustr-web.vercel.app` (no path). Do not set it to a per-deployment URL such as `https://ustr-<deployment-id>-<team>.vercel.app`; email code requests use this canonical host for their Supabase redirect configuration. The app uses `SITE_URL` first, then `NEXT_PUBLIC_SITE_URL`, then Vercel's `VERCEL_PROJECT_PRODUCTION_URL`. In local development only, it falls back to the request origin. Existing recovery routes canonicalize `/account/forgot-password` before issuing recovery requests, keeping PKCE cookies and the emailed callback on the same host. In Supabase Auth **URL Configuration**, set the Site URL to `https://ustr-web.vercel.app` and add `https://ustr-web.vercel.app/account` and `https://ustr-web.vercel.app/admin/login` (or `https://ustr-web.vercel.app/**`) to the allowed redirect URLs.
 
 | Variable | Purpose | Secret? |
 |---|---|---|
