@@ -24,16 +24,33 @@ Verifying an email code authenticates the email identity; it does **not** make a
 The authorized Supabase project administrator should:
 
 1. If the owner account does not exist, open `/account`, choose **New here? Create an account**, enter the owner's name and email, request the email code, and verify it. This creates a customer account first; it does not grant owner access.
-2. In the **same Supabase project used by the production Vercel deployment**, open **SQL Editor** and run the following query, replacing the example email with the owner's account email:
+2. In the **same Supabase project used by the production Vercel deployment**, open **SQL Editor** and run the read-only query below, replacing the example email with the owner's account email. Confirm it returns exactly one intended Auth user and that `store_profiles.id` matches the Auth `id`.
+
+   ```sql
+   select
+       u.id as auth_user_id,
+       u.email as auth_email,
+       u.email_confirmed_at,
+       u.banned_until,
+       p.id as profile_id,
+       p.email as profile_email,
+       p.role
+   from auth.users as u
+   left join public.store_profiles as p on p.id = u.id
+   where lower(u.email) = lower('owner@example.com');
+   ```
+
+3. If the exact, confirmed, unbanned account is authorized to administer this store and its profile currently has `role = 'customer'`, the authorized Supabase administrator may promote that exact verified Auth ID. Replace the UUID below with the `auth_user_id` from the single verified result; do not use a broad email update.
 
    ```sql
    update public.store_profiles
    set role = 'owner', updated_at = now()
-   where lower(email) = lower('owner@example.com')
+   where id = 'REPLACE-WITH-VERIFIED-AUTH-USER-UUID'
+     and role = 'customer'
    returning id, email, role;
    ```
 
-3. Confirm exactly one row is returned and its role is `owner`. If no row is returned, stop and check the account and email; do not create a shared account or promote an unverified identity. If more than one row is returned, stop and have the administrator resolve the duplicate identities.
+   The update should return exactly one row with `role = 'owner'`. If it returns no rows or more than one, stop and investigate; do not create a second account or choose between conflicting identities. If the profile is missing, do not insert one as a workaround: check that both migrations and the `on_auth_user_created_store_profile` trigger from the storefront migration are installed, then have the database administrator repair the provisioning issue.
 4. Open [Owner sign-in](/admin/login), request a code for the authorized email, and enter the 6-digit code. The owner screen only accepts an existing account whose server-verified `store_profiles.role` is `owner`; a customer account is signed out and denied.
 
 Never share one-time codes, recovery links, session cookies, API keys, or database credentials. Do not ask anyone to send you their code.
@@ -57,7 +74,7 @@ Check these items in order, without sharing any secret values or OTP/recovery to
    where lower(u.email) = lower('owner@example.com');
    ```
 
-   The expected result is one account with `role = 'owner'`. Email confirmation/verification and owner authorization are separate. A missing profile should be investigated by checking the store schema migration and profile trigger; do not create a second identity or promote an unverified person as a workaround.
+   The expected result is one account with `role = 'owner'`. Email confirmation/verification and owner authorization are separate. A missing profile should be investigated by checking the store schema migration and profile trigger; do not create a second identity or promote an unverified person as a workaround. A missing profile now returns a distinct setup response; a profile that exists but is not `owner` returns the owner-access denial.
 6. In Supabase **Authentication → SMTP Settings**, verify custom SMTP is enabled and the sender is valid. In Brevo, confirm the sender/domain is authorized and SMTP is active. Credentials belong only in the Supabase dashboard, never in the app, repository, chat, or screenshots.
 7. Check Supabase Auth email templates: the **Magic Link** template must render the numeric code using `{{ .Token }}` (not only the click-through `{{ .ConfirmationURL }}`), and OTP length must be set to **6**. The app expects the customer/owner to type six digits on the same sign-in page.
 8. If the logs show throttling, wait for the cooldown and try once. The UI disables resend for 60 seconds; Supabase enforces its own email-send rate limits.
