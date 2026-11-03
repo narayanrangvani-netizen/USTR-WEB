@@ -6,6 +6,7 @@ import { getSupabaseServiceClient } from "./server";
 type CatalogRow = {
   id: string;
   slug: string;
+  created_at: string;
   name: string;
   gender: Product["gender"];
   product_type: string;
@@ -57,6 +58,7 @@ function mapProduct(row: CatalogRow): Product {
   return {
     id: row.id,
     slug: row.slug,
+    createdAt: row.created_at,
     name: row.name,
     gender: row.gender,
     category: row.product_type,

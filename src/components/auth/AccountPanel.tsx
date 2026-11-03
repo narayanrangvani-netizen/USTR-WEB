@@ -18,11 +18,13 @@ export function AccountPanel({ ownerOnly = false }: { ownerOnly?: boolean }) {
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
 
-  async function loadUser() {
+  async function loadUser(): Promise<StoreUser | null> {
     const response = await fetch("/api/auth/me", { cache: "no-store" });
     const body = await response.json();
     if (!response.ok) throw new Error(body.error ?? "Could not check your account.");
-    setUser(body.user);
+    const currentUser = body.user as StoreUser | null;
+    setUser(currentUser);
+    return currentUser;
   }
 
   useEffect(() => {
@@ -55,10 +57,11 @@ export function AccountPanel({ ownerOnly = false }: { ownerOnly?: boolean }) {
         return;
       }
       if (mode === "signup") setMessage(body.message);
-      await loadUser();
-      const sessionResponse = await fetch("/api/auth/me", { cache: "no-store" });
-      const sessionBody = await sessionResponse.json();
-      if (ownerOnly && sessionBody.user?.role !== "owner") {
+      const currentUser = await loadUser();
+      if (!currentUser) {
+        throw new Error("Sign-in succeeded, but the session could not be verified. Try again.");
+      }
+      if (ownerOnly && currentUser.role !== "owner") {
         setUser(null);
         throw new Error("This account is not an owner account. Ask the store owner to grant owner access in Supabase.");
       }

@@ -4,11 +4,11 @@ import { getSupabaseServerClient } from "@/lib/supabase/server";
 
 function getLoginError(error: AuthError) {
   const code = "code" in error ? error.code : undefined;
-  if (code === "email_not_confirmed") {
-    return "Please confirm your email using the link we sent you, then sign in.";
-  }
   if (code === "invalid_credentials" || code === "user_not_found") {
     return "Email or password is incorrect. Check both fields, or create an account if you have not signed up yet.";
+  }
+  if (code === "email_not_confirmed" || code === "user_banned") {
+    return "Sign-in is unavailable. Please contact the store owner.";
   }
   if (code === "over_request_rate_limit" || error.status === 429) {
     return "Too many sign-in attempts. Please wait a few minutes and try again.";
@@ -16,7 +16,7 @@ function getLoginError(error: AuthError) {
   if (code === "email_address_invalid") {
     return "That email address is not accepted. Check the spelling and try again.";
   }
-  return "We could not sign you in right now. Check your Supabase Auth email/password settings and try again.";
+  return "Sign-in is temporarily unavailable. Please try again later.";
 }
 
 export async function POST(request: Request) {
@@ -42,20 +42,36 @@ export async function POST(request: Request) {
     const { data, error } = await supabase.auth.signInWithPassword({ email, password });
     if (error) {
       const code = "code" in error ? error.code : undefined;
-      const status = code === "email_not_confirmed" ? 403 : error.status === 429 ? 429 : 401;
+      const expectedRejection =
+        code === "invalid_credentials" || code === "user_not_found";
+      const status = code === "over_request_rate_limit" || error.status === 429
+        ? 429
+        : code === "email_not_confirmed" || code === "user_banned"
+          ? 403
+        : code === "email_address_invalid"
+          ? 400
+        : expectedRejection
+          ? 401
+          : error.name === "AuthRetryableFetchError" || (error.status !== undefined && error.status >= 500)
+            ? 503
+            : 500;
+      console.warn("[auth.login] Supabase sign-in rejected", { code: code ?? "unknown", status });
       return NextResponse.json({ error: getLoginError(error) }, { status });
     }
-    if (!data.user) {
-      return NextResponse.json({ error: "Sign-in did not return an account. Please try again." }, { status: 401 });
+    if (!data.user || !data.session) {
+      console.error("[auth.login] Sign-in returned no authenticated session");
+      return NextResponse.json({ error: "Sign-in could not establish a session. Please try again." }, { status: 503 });
     }
 
     return NextResponse.json({ user: { id: data.user.id, email: data.user.email } });
   } catch (error) {
-    const configMessage = error instanceof Error && error.message.startsWith("Supabase configuration error:")
-      ? error.message
-      : null;
-    return NextResponse.json({
-      error: configMessage ?? "Sign-in is temporarily unavailable. Verify that SUPABASE_URL and SUPABASE_APIKEY use your project URL and anon/publishable key, and that the server-side service key is configured.",
-    }, { status: 503 });
+    const configError = error instanceof Error && error.message.startsWith("Supabase");
+    console.error("[auth.login] Sign-in request failed", {
+      kind: configError ? "configuration" : error instanceof Error ? error.name : "unknown",
+    });
+    return NextResponse.json(
+      { error: "Sign-in is temporarily unavailable. Verify that the Supabase project URL, anon/publishable key, and server-side service key are configured, then try again." },
+      { status: 503 },
+    );
   }
 }

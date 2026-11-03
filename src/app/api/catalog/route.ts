@@ -5,7 +5,9 @@ export async function GET() {
   try {
     return NextResponse.json({ products: await listProducts() });
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Could not load the catalog.";
-    return NextResponse.json({ error: message }, { status: 503 });
+    console.error("[catalog] Product list failed", {
+      kind: error instanceof Error ? error.name : "unknown",
+    });
+    return NextResponse.json({ error: "The catalog is temporarily unavailable." }, { status: 503 });
   }
 }

@@ -37,7 +37,11 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
     }
 
     const { data: product, error: productError } = await access.service.from("products").select("id, colors").eq("id", id).maybeSingle();
-    if (productError || !product) return NextResponse.json({ error: "Product not found." }, { status: 404 });
+    if (productError) {
+      console.error("[admin.images] Product lookup failed", { code: productError.code ?? "unknown" });
+      return NextResponse.json({ error: "Could not verify the product. Try again." }, { status: 503 });
+    }
+    if (!product) return NextResponse.json({ error: "Product not found." }, { status: 404 });
     if (imageRole === "colorway" && imageColor && !(product.colors as string[]).includes(imageColor)) {
       return NextResponse.json({ error: "The selected colour must be listed on this product first." }, { status: 400 });
     }
@@ -47,12 +51,19 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
     const { error: uploadError } = await access.service.storage
       .from("product-images")
       .upload(storagePath, file, { contentType: file.type, upsert: false });
-    if (uploadError) return NextResponse.json({ error: `Image upload failed: ${uploadError.message}` }, { status: 400 });
+    if (uploadError) {
+      console.error("[admin.images] Storage upload failed", { code: uploadError.name });
+      return NextResponse.json({ error: "Image upload failed. Check your storage configuration and try again." }, { status: 503 });
+    }
 
     const { data: publicUrl } = access.service.storage.from("product-images").getPublicUrl(storagePath);
     const { data: existing, error: listError } = await access.service
       .from("product_images").select("id").eq("product_id", id);
-    if (listError) return NextResponse.json({ error: `Image uploaded, but image list could not be read: ${listError.message}` }, { status: 400 });
+    if (listError) {
+      await access.service.storage.from("product-images").remove([storagePath]);
+      console.error("[admin.images] Image list failed", { code: listError.code ?? "unknown" });
+      return NextResponse.json({ error: "Image uploaded, but its product record could not be prepared. Try again." }, { status: 503 });
+    }
     const { data: image, error: insertError } = await access.service
       .from("product_images")
       .insert({
@@ -65,10 +76,16 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
       })
       .select("id, image_url, is_primary, image_role, image_color")
       .single();
-    if (insertError) return NextResponse.json({ error: `Image uploaded, but its product record could not be saved: ${insertError.message}` }, { status: 400 });
+    if (insertError) {
+      await access.service.storage.from("product-images").remove([storagePath]);
+      console.error("[admin.images] Image record creation failed", { code: insertError.code ?? "unknown" });
+      return NextResponse.json({ error: "Image uploaded, but its product record could not be saved. Try again." }, { status: 503 });
+    }
     return NextResponse.json({ image }, { status: 201 });
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Could not upload this image.";
-    return NextResponse.json({ error: message }, { status: 400 });
+    console.error("[admin.images] Image upload request failed", {
+      kind: error instanceof Error ? error.name : "unknown",
+    });
+    return NextResponse.json({ error: "Could not upload this image. Try again." }, { status: 503 });
   }
 }

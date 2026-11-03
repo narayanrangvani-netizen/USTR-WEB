@@ -19,7 +19,12 @@ type Order = {
     state?: string;
     postal_code?: string;
   } | null;
-  order_items: { quantity: number; price: number; products: { name: string } | null }[];
+  order_items: {
+    quantity: number;
+    price: number;
+    products: { name: string } | null;
+    product_variants: { color: string; size: string } | null;
+  }[];
 };
 
 const orderStatuses = ["Pending", "Confirmed", "Processing", "Shipped", "Delivered", "Cancelled"];
@@ -74,7 +79,7 @@ export default function OrdersPage() {
               </div>
               <div className="grid gap-5 md:grid-cols-2">
                 <div><h2 className="text-xs font-bold uppercase tracking-[0.18em] text-[#63452f]">Delivery address</h2><p className="mt-2 text-sm leading-6 text-[#29221d]">{address?.full_name}<br />{address?.phone}<br />{address?.address_line_1}{address?.address_line_2 ? `, ${address.address_line_2}` : ""}<br />{address?.city}, {address?.state} {address?.postal_code}</p></div>
-                <div><h2 className="text-xs font-bold uppercase tracking-[0.18em] text-[#63452f]">Items</h2><ul className="mt-2 space-y-1 text-sm text-[#29221d]">{order.order_items.map((item, index) => <li key={`${order.id}-${index}`}>{item.quantity} × {item.products?.name ?? "Product"} — ₹{Number(item.price).toFixed(2)} each</li>)}</ul><p className="mt-3 text-sm text-[#63452f]">Payment: Cash on delivery · {order.payment_status}</p></div>
+                <div><h2 className="text-xs font-bold uppercase tracking-[0.18em] text-[#63452f]">Items</h2><ul className="mt-2 space-y-1 text-sm text-[#29221d]">{order.order_items.map((item, index) => <li key={`${order.id}-${index}`}>{item.quantity} × {item.products?.name ?? "Product"}{item.product_variants ? ` · ${item.product_variants.color} / ${item.product_variants.size}` : ""} — ₹{Number(item.price).toFixed(2)} each</li>)}</ul><p className="mt-3 text-sm text-[#63452f]">Payment: {order.payment_method === "cod" ? "Cash on delivery" : order.payment_method} · {order.payment_status}</p></div>
               </div>
               <div className="flex flex-wrap items-center gap-3 border-t border-stone-200 pt-4">
                 <label className="text-sm text-[#63452f]">Order status <select value={order.order_status} onChange={(event) => void updateOrder(order.id, { orderStatus: event.target.value })} className="ml-2 rounded-xl border border-stone-300 bg-white px-3 py-2 text-[#29221d]">{orderStatuses.map((status) => <option key={status}>{status}</option>)}</select></label>

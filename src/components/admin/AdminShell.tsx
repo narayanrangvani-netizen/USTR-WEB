@@ -10,6 +10,7 @@ const navItems = [
   { label: "Add Product", href: "/admin/add-product" },
   { label: "Categories", href: "/admin/categories" },
   { label: "Inventory", href: "/admin/inventory" },
+  { label: "Showroom", href: "/admin/showroom" },
   { label: "Orders", href: "/admin/orders" },
   { label: "Coupons", href: "/admin/coupons" },
   { label: "Store Settings", href: "/admin/settings" },
@@ -37,6 +38,7 @@ export function AdminShell({ children }: { children: React.ReactNode }) {
       <div className="mx-auto flex max-w-7xl gap-6 px-4 py-6 sm:px-6 lg:px-8">
         <nav className="fixed bottom-0 left-0 z-40 flex w-full gap-2 overflow-x-auto border-t border-stone-200 bg-white p-2 lg:hidden">
           {navItems.map((item) => <Link key={item.href} href={item.href} className={`shrink-0 rounded-full px-3 py-2 text-xs font-medium ${pathname === item.href ? "bg-[#29221d] text-white" : "text-[#63452f]"}`}>{item.label}</Link>)}
+          <button onClick={handleLogout} className="shrink-0 rounded-full px-3 py-2 text-xs font-medium text-[#63452f]">Logout</button>
         </nav>
         <aside className="hidden w-72 shrink-0 rounded-[28px] border border-stone-200 bg-white p-5 lg:block">
           <div className="text-xl font-black uppercase tracking-[0.22em] text-[#29221d]">USTR SUITS</div>

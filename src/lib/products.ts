@@ -3,6 +3,7 @@ export type ProductStatus = "Published" | "Draft" | "Archived";
 export type Product = {
   id: string;
   slug: string;
+  createdAt: string;
   name: string;
   gender: "Men" | "Women" | "Unisex";
   category: string;
