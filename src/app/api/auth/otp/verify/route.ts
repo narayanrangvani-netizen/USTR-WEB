@@ -43,8 +43,10 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Enter a valid email address and the 6-digit code from your email." }, { status: 400 });
   }
 
+  let supabase: Awaited<ReturnType<typeof getSupabaseServerClient>> | null = null;
+  let otpVerified = false;
   try {
-    const supabase = await getSupabaseServerClient();
+    supabase = await getSupabaseServerClient();
     const { data, error } = await supabase.auth.verifyOtp({ email, token, type: "email" });
     if (error) {
       const result = getVerificationError(error);
@@ -53,6 +55,7 @@ export async function POST(request: Request) {
     if (!data.user || !data.session) {
       return NextResponse.json({ error: "The code could not establish a sign-in session. Request a new code." }, { status: 503 });
     }
+    otpVerified = true;
     if (ownerLogin) {
       const { data: profile, error: profileError } = await getSupabaseServiceClient()
         .from("store_profiles")
@@ -64,14 +67,24 @@ export async function POST(request: Request) {
         await clearSession(supabase);
         return NextResponse.json({ error: "Owner access could not be verified. Try again shortly." }, { status: 503 });
       }
-      if (profile?.role !== "owner") {
+      if (!profile) {
+        await clearSession(supabase);
+        return NextResponse.json({
+          error: "Your store account profile is missing. Ask the store administrator to complete owner setup.",
+        }, { status: 409 });
+      }
+      if (profile.role !== "owner") {
         await clearSession(supabase);
         return NextResponse.json({ error: "This account does not have owner access. Ask the store administrator to authorize its owner role." }, { status: 403 });
       }
     }
 
     return NextResponse.json({ ok: true });
-  } catch {
+  } catch (error) {
+    if (supabase && otpVerified) await clearSession(supabase);
+    console.error("[auth.otp] Verification setup failed", {
+      kind: error instanceof Error ? error.name : "unknown",
+    });
     return NextResponse.json({ error: "Email sign-in is temporarily unavailable. Try again shortly." }, { status: 503 });
   }
 }

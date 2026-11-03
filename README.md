@@ -16,16 +16,9 @@ For the step-by-step store-owner workflow, see the [Owner's Store Handbook](docs
 3. In **Authentication → Providers → Email**, enable the Email provider and allow signups if customers should create accounts. For typed one-time codes, edit the Supabase Auth **Magic Link** email template so the message contains the code placeholder `{{ .Token }}` (not just `{{ .ConfirmationURL }}`), and set the OTP length to 6 digits. For example, the template body can display `<p>Your USTR SUITS sign-in code is {{ .Token }}</p>`. Configure Brevo as Supabase's custom SMTP provider using the steps below. Email delivery must work before customers or the owner can sign in.
 4. Copy `.env.example` to `.env.local` and fill in the project URL, anon key, and service-role key from **Project Settings → API**. Keep the service-role key private and server-only. Never prefix it with `NEXT_PUBLIC_` or commit `.env.local`.
 5. Apply the additional showroom migration [`supabase/migrations/20261101000100_showroom_rack.sql`](supabase/migrations/20261101000100_showroom_rack.sql). It adds rack visibility/order and image view/colour metadata with defaults; it does not delete product, image, inventory, customer, or order data.
-6. Start the app and create your customer account at `/account` using the emailed 6-digit code. To create the owner's identity, first request a customer account using the intended owner email and verify its code. Only after the account exists, promote that exact email to store owner in the Supabase SQL Editor:
+6. Start the app and create the owner's identity at `/account` using the intended owner email and verify its code. New accounts start as customers. After verifying the account identity, an authorized administrator must inspect the account and approve the owner role in the same Supabase project's SQL Editor. Use the read-only identity check and the guarded update-by-Auth-ID example in the [Owner's Store Handbook](docs/OWNER-GUIDE.md#first-time-setup-and-owner-access); do not run a broad email-based role update.
 
-   ```sql
-   update public.store_profiles
-   set role = 'owner', updated_at = now()
-   where lower(email) = lower('you@example.com')
-   returning id, email, role;
-   ```
-
-   Replace the example with the verified email used to register. The result should show exactly one row with `role = owner`. If it returns no rows, the account/profile does not exist yet or the email does not match; finish the OTP account creation and rerun the query. If it returns more than one row, stop and check the matching profiles before proceeding. New accounts are customers by default; OTP does not grant owner access.
+   If the profile is missing, investigate the existing migration/profile trigger rather than inserting another profile or account. OTP never grants owner access.
 
 7. Sign in with that email's one-time code at `/admin/login`. The protected dashboard is at `/admin`. The owner login only accepts existing accounts with a server-verified `store_profiles.role = 'owner'`.
 
